@@ -516,9 +516,9 @@ public final class Mover {
         if (c != self || !owned || result == null || (result.x == nx && result.y == ny)) return;
         IsoCell cell = IsoWorld.instance != null ? IsoWorld.instance.currentCell : null;
         if (cell == null) return;
-        int cars = Rides.vehiclesAt(cell, nx, ny, c.getZ(), 0.3f, Ledges.STEP_UP);
+        int cars = Rides.vehiclesAt(cell, c.getX(), c.getY(), nx, ny, c.getZ(), 0.3f, Ledges.STEP_UP);
         if (cars < 0) return;
-        int props = Props.squaresAt(cell, nx, ny, c.getZ(), 0.3f, Ledges.STEP_UP, !grounded);
+        int props = Props.squaresAt(cell, c.getX(), c.getY(), nx, ny, c.getZ(), 0.3f, Ledges.STEP_UP, !grounded);
         if (props < 0) return;
         // It also treats every window as a wall and holds you off it before the grid collision is reached.
         if (cars > 0 || props > 0 || Windows.nearOpening(c, cell, nx, ny, c.getZ(), 0.35, vel)) result.set(nx, ny);

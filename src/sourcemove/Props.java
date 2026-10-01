@@ -463,6 +463,11 @@ final class Props {
         return false;
     }
 
+    /** Distance from (x, y) to square (gx, gy); 0 inside it. */
+    static double squareDistance(int gx, int gy, double x, double y) {
+        return Math.hypot(Math.max(0, Math.max(gx - x, x - (gx + 1))), Math.max(0, Math.max(gy - y, y - (gy + 1))));
+    }
+
     /** The trimpable prop (a tent) on this square, or null. */
     static Prop ramp(IsoGridSquare sq) {
         if (sq == null || !enabledAt(sq)) return null;
@@ -587,17 +592,23 @@ final class Props {
     }
 
     /**
-     * For CollideWithObstacles: -1 if a solid square overlapping the circle at (x,y) is in your way,
+     * For CollideWithObstacles, moving from (ox,oy) to (x,y): -1 if a solid square overlapping the circle at (x,y) is in your way,
      * 1 if there are solid squares and you're above all of them, 0 if there are none. Open water counts as
      * cleared while airborne or standing above it ({@link Water}).
      */
-    static int squaresAt(IsoCell cell, double x, double y, double feet, double radius, double stepUp, boolean airborne) {
+    static int squaresAt(IsoCell cell, double ox, double oy, double x, double y, double feet, double radius, double stepUp, boolean airborne) {
         int level = (int) Math.floor(feet);
         boolean any = false;
         for (int gx = (int) Math.floor(x - radius); gx <= (int) Math.floor(x + radius); gx++) {
             for (int gy = (int) Math.floor(y - radius); gy <= (int) Math.floor(y + radius); gy++) {
                 IsoGridSquare sq = cell.getGridSquare(gx, gy, level);
                 if (sq == null || !(sq.isSolid() || sq.isSolidTrans())) continue;
+                // Moving away from it (stepping or falling off its edge): never in your way. Vanilla can't
+                // resolve a body that already overlaps a solid square and would stop you dead.
+                if (squareDistance(gx, gy, x, y) > squareDistance(gx, gy, ox, oy) + 1e-6) {
+                    any = true;
+                    continue;
+                }
                 // Open water: only while above it, and then over any prop standing in it.
                 if (Water.open(sq) && !airborne && feet < level + Water.SURFACE) return -1;
                 Prop slope = ramp(sq);

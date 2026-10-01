@@ -87,12 +87,17 @@ final class Rides {
      * For a move to (x,y): -1 if a vehicle there is in your way, 1 if it overlaps vehicles and your feet
      * are above every roof (the vehicle is under you), 0 if it overlaps none.
      */
-    static int vehiclesAt(IsoCell cell, float x, float y, double feet, float radius, double stepUp) {
+    static int vehiclesAt(IsoCell cell, float ox, float oy, float x, float y, double feet, float radius, double stepUp) {
         boolean any = false;
         ArrayList<BaseVehicle> cars = nearby(cell, x, y);
         for (int i = 0; i < cars.size(); i++) {
             BaseVehicle v = cars.get(i);
             if (!over(v, x, y, radius)) continue;
+            // Moving away from it (running off its roof): never in your way.
+            if (Math.hypot(x - v.getX(), y - v.getY()) > Math.hypot(ox - v.getX(), oy - v.getY()) + 1e-6) {
+                any = true;
+                continue;
+            }
             float roof = roofZ(v);
             if (Float.isNaN(roof) || feet < roof - stepUp) return -1;
             any = true;
