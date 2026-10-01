@@ -147,7 +147,10 @@ public final class Mover {
         }
         boolean wishing = frame - wishFrame <= 1 && (wishX != 0 || wishY != 0);
         int mode = p.isSprinting() ? SPRINT : p.isRunning() ? RUN : p.isSneaking() ? SNEAK : WALK;
-        learnSpeed(mode, wishing, tmp.getLength(), dt);
+        IsoGridSquare under = p.getCurrentSquare();
+        // Animation pace on stairs and slopes isn't your running speed: don't learn from it.
+        boolean level = under == null || !(under.HasStairs() || under.hasSlopedSurface());
+        learnSpeed(mode, wishing && level, tmp.getLength(), dt);
 
         double wishSpeed = wishing ? maxSpeed[mode] : 0;
         double runSpeed = maxSpeed[RUN];
@@ -693,21 +696,25 @@ public final class Mover {
         double z = c.getZ();
         double best = -1;
         int kind = FLOOR_GROUND;
+        // Step-up only catches you coming down (or already on top): rising past a top isn't a landing, which
+        // would zero your upward speed and apply ground friction mid-jump.
+        double stepUp = c.getLastFallSpeed() < 0 ? 0 : Ledges.STEP_UP;
         double fence = Ledges.fenceTopUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), Cfg.fenceFooting);
         IsoGridSquare rail = Ledges.lastRailStairs;
-        if (fence >= 0 && z >= fence - Ledges.STEP_UP) { // well below the top it's a wall to you, not a floor
+        if (fence >= 0 && z >= fence - stepUp) { // well below the top it's a wall to you, not a floor
             best = fence;
             kind = FLOOR_FENCE;
             floorRail = rail;
         }
-        BaseVehicle car = Rides.roofUnder(cell, c.getX(), c.getY(), z, VEHICLE_FOOTING, Ledges.STEP_UP, roofOut);
+        BaseVehicle car = Rides.roofUnder(cell, c.getX(), c.getY(), z, VEHICLE_FOOTING, stepUp, roofOut);
         if (car != null && roofOut[0] > best) {
             best = roofOut[0];
             kind = FLOOR_VEHICLE;
         }
         Props.Prop prop = null;
         if (Cfg.propMode != Props.MODE_OFF) {
-            double top = Props.topUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), z, Ledges.STEP_UP, PROP_FOOTING);
+            // (Ramps, tent sides, keep catching you while rising: that landing is what clips you along them.)
+            double top = Props.topUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), z, stepUp, PROP_FOOTING);
             if (top > best) {
                 best = top;
                 kind = FLOOR_PROP;
@@ -1109,6 +1116,11 @@ public final class Mover {
     /** Horizontal speed for the speed overlay (tiles/s): ours while we drive you, else measured. */
     static double hudSpeed() {
         return owned ? Math.hypot(velX(), velY()) : measuredSpeed;
+    }
+
+    /** getGlobalMovementMod exit: no vanilla speed scaling (0.75 on stairs) while we drive your movement. */
+    public static float onMovementMod(IsoPlayer p, float ret) {
+        return p == self && owned ? 1f : ret;
     }
 
     /** Ground-relative velocity (tiles/s): ours plus the car we're riding. */
