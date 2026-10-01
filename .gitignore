@@ -1,0 +1,9 @@
+# build output
+build/
+mod/ViewpointSourceMovement/42/media/java/*.jar
+
+# local / editor
+*.7z
+.idea/
+.vscode/
+__pycache__/
