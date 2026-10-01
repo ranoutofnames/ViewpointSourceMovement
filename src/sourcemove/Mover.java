@@ -658,7 +658,8 @@ public final class Mover {
 
     /** @return true to skip DoLand entirely (FALL_NONE: no damage, pain, or landing knockdown). */
     public static boolean skipLanding(IsoGameCharacter c) {
-        return modAir(c) && Cfg.fallMode == Cfg.FALL_NONE;
+        // Another player using this mod: their own client lands them (damage, knockdown) and syncs it.
+        return modAir(c) && Cfg.fallMode == Cfg.FALL_NONE || Remote.fallsOverridden(c);
     }
 
     /**
@@ -776,7 +777,7 @@ public final class Mover {
 
     /** isFalling() feeds the animation graph's "bfalling"; report false so the falling state never plays. */
     public static boolean onIsFalling(IsoGameCharacter c, boolean ret) {
-        return ret && !(c == self && fallOverride(c));
+        return ret && !(c == self ? fallOverride(c) : Remote.fallsOverridden(c));
     }
 
     /**

@@ -33,6 +33,10 @@ public final class Remote {
     private static final long STALE_NS = 2_500_000_000L;
     /** Extrapolate an arc at most this long past the last report (s). */
     private static final double MAX_ARC = 0.6;
+    /** Don't show them further than this (levels) from where vanilla has them: something's out of sync. */
+    private static final double MAX_GAP = 2.5;
+    /** Hold a landing height this long while the whole-level position update arrives. */
+    private static final long LAND_HOLD_NS = 500_000_000L;
     /** Position smoothing time constant (s). */
     private static final double SMOOTH = 0.08;
     private static final String[] LAND_EVENTS = {null, "LandLight", "LandHeavy", "LandHeavyFromFall"};
@@ -43,6 +47,8 @@ public final class Remote {
         /** Riding a car roof: its vehicle ID and our spot in its frame (x forward along its yaw). */
         short vehicle;
         float localX, localY;
+        /** When their last landing report arrived: their height is held there until the position catches up. */
+        long landedAt;
         boolean jumpAlt;
         long at;
         boolean applied;
@@ -72,6 +78,7 @@ public final class Remote {
                 st.flags &= ~Net.F_RIDE;
             }
             st.at = System.nanoTime();
+            if ((st.flags & Net.F_LAND) != 0) st.landedAt = st.at;
             if ((st.flags & Net.F_JUMP) != 0) {
                 if (anim > 0) {
                     st.jumpAlt = !st.jumpAlt;
@@ -131,10 +138,20 @@ public final class Remote {
         st.startY = p.getY();
     }
 
+    /** Using Source movement and its fall rules: their falls (and landings) are theirs, not ours to animate. */
+    static boolean fallsOverridden(IsoGameCharacter c) {
+        return Cfg.fallMode != Cfg.FALL_VANILLA && active(c);
+    }
+
     /** IsoPlayer.update exit: position and display height from the reports. */
     public static void onUpdateExit(IsoPlayer p) {
         St st = fresh(p);
         if (st == null || (st.flags & Net.F_ACTIVE) == 0 || p.getVehicle() != null || p.isDead()) return;
+        if (Cfg.fallMode != Cfg.FALL_VANILLA) {
+            // Our copy of them falls with vanilla gravity between whole-level position updates: no falling state.
+            p.setbFalling(false);
+            p.setFallTime(0);
+        }
         State s = p.getCurrentState();
         if (s == ClimbOverFenceState.instance() || s == ClimbThroughWindowState.instance() || s == ClimbOverWallState.instance()) return;
 
@@ -160,16 +177,23 @@ public final class Remote {
             }
         }
 
-        // Vertical: follow the reported arc, never below where vanilla has them.
+        // Vertical: in the air, follow the reported arc, across levels too (a drop off a roof); standing on
+        // something, never below where vanilla has them; just landed, hold the landing height until the
+        // whole-level position update catches up.
         float sim = p.getZ();
         double z = st.z;
+        long now = System.nanoTime();
         if ((st.flags & Net.F_AIR) != 0) {
-            double t = Math.min(MAX_ARC, (System.nanoTime() - st.at) / 1e9);
+            double t = Math.min(MAX_ARC, (now - st.at) / 1e9);
             z = st.z + st.vz * t - 0.5 * FallingConstants.IsoFallAcceleration * t * t;
-        } else if ((st.flags & Net.F_RAISED) == 0) {
+            if (Math.abs(z - sim) > MAX_GAP) return;
+        } else if ((st.flags & Net.F_RAISED) != 0) {
+            if (!(z > sim + 0.005) || Math.floor(z) != Math.floor(sim)) return;
+        } else if (now - st.landedAt < LAND_HOLD_NS) {
+            if (Math.abs(z - sim) < 0.005 || Math.abs(z - sim) > MAX_GAP) return;
+        } else {
             return;
         }
-        if (!(z > sim + 0.005) || Math.floor(z) != Math.floor(sim)) return;
         st.simZ = sim;
         st.simLastZ = p.getLastZ();
         p.setZ((float) z);
