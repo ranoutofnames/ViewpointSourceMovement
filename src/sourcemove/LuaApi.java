@@ -10,7 +10,10 @@ public class LuaApi {
     @LuaMethod(name = "SourceMove_setBool", global = true)
     public static void setBool(String key, boolean v) {
         switch (key) {
-            case "enabled" -> Cfg.enabled = v;
+            case "enabled" -> {
+                if (Cfg.enabled != v) Mover.softReset();
+                Cfg.enabled = v;
+            }
             case "fpOnly" -> Cfg.fpOnly = v;
             case "fallKnockdown" -> Cfg.fallKnockdown = v;
             case "jumpAnim" -> Cfg.jumpAnim = v;

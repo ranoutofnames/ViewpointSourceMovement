@@ -49,7 +49,7 @@ final class Status {
         if (p == null) return "Source movement: no player";
         double s = Mover.vel.speed();
         return String.format(
-                "Source movement %s%s | owned=%s state=%s grounded=%s\n"
+                "Source movement %s%s | owned=%s state=%s grounded=%s%s%s\n"
                         + "speed %.2f tiles/s (~%.0f u/s) | z=%.3f vz=%.2f\n"
                         + "learned max  sneak %.2f  walk %.2f  run %.2f  sprint %.2f\n"
                         + "floor: %s%s%s\n"
@@ -57,6 +57,8 @@ final class Status {
                 Cfg.enabled ? "ON" : "OFF", !GameClient.client ? "" : !Net.serverReady ? " (waiting for server)"
                         : Net.serverJava ? " (multiplayer)" : " (multiplayer, server has no Java side)",
                 Mover.owned, Mover.lastState, Mover.grounded,
+                Mover.blockedBy == null ? "" : " | off: " + Mover.blockedBy,
+                Mover.jumpBlockedBy == null ? "" : " | last jump refused: " + Mover.jumpBlockedBy,
                 s, s / 0.01905, p.getZ(), -p.getLastFallSpeed(),
                 Mover.maxSpeed[Mover.SNEAK], Mover.maxSpeed[Mover.WALK], Mover.maxSpeed[Mover.RUN], Mover.maxSpeed[Mover.SPRINT],
                 Floors.floorName(p),

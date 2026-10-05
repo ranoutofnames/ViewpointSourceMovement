@@ -13,7 +13,7 @@ public class Patch_DoLand {
         return false;
     }
 
-    @Patch.OnExit
+    @Patch.OnExit(onThrowable = Throwable.class)
     public static void exit(@Patch.This IsoGameCharacter self) {
         Landing.onLandingDone(self);
     }

@@ -44,7 +44,7 @@ public final class Landing {
         Mover.vel.x = Mover.vel.y = 0;
     }
 
-    private static boolean inLanding;
+    static boolean inLanding;
 
     /** Skip DoLand entirely in FALL_NONE. */
     public static boolean skipLanding(IsoGameCharacter c) {

@@ -49,6 +49,8 @@ public final class Mover {
     private static boolean wasOwned;
     private static float prevX, prevY;
     private static double prevDt;
+    /** Last unowned frame was a car, a timed action or a ride mod. */
+    private static boolean wasParked;
 
     private static float wishX, wishY;
     private static long wishFrame = Long.MIN_VALUE / 2;
@@ -61,14 +63,26 @@ public final class Mover {
     static boolean jumpedThisAir;
     static long airStartNanos;
 
+    /** Vanilla full speed per mode (tiles/s). */
+    private static final double[] BASE_SPEED = {1.0, 1.9, 3.4, 5.0};
+    /** Learned speed stays within this of vanilla. */
+    private static final double LEARN_CAP = 1.25;
+    /** Root motion this far over vanilla is a ride mod (bike, skateboard), so vanilla moves us. */
+    private static final double RIDE_RATIO = 1.6;
+    /** A mod's own animation this far under vanilla is a ride too (standing on the board). */
+    private static final double RIDE_SLOW_RATIO = 0.3;
+    private static boolean riding;
+    private static double rideSpeed;
     /** Learned ground speed per mode (tiles/s), tuned from root motion. */
-    static final double[] maxSpeed = {1.0, 1.9, 3.4, 5.0};
+    static final double[] maxSpeed = BASE_SPEED.clone();
     private static double modeHeldTime;
     private static int lastMode = -1;
 
     private static final Vector2 tmp = new Vector2();
     private static Field isOnGroundField;
     static String lastState = "";
+    /** Why we don't drive, for the debug overlay. */
+    static String blockedBy, jumpBlockedBy;
 
     /** True to skip vanilla root motion this frame. */
     public static boolean onDeferredMovement(IsoGameCharacter chr) {
@@ -90,16 +104,18 @@ public final class Mover {
         owned = own;
         if (!own) {
             wasOwned = false;
+            if (riding) checkRideOver(p, dt);
             prevX = p.getX();
             prevY = p.getY();
             prevDt = dt;
+            wasParked = p.getVehicle() != null || !p.getCharacterActions().isEmpty() || p.getIgnoreMovement();
             Net.frame(p, false, grounded, false, animOn, null);
             return false;
         }
         if (!wasOwned) {
             // Take over at vanilla's speed so it doesn't snap.
             vel.x = vel.y = 0;
-            if (prevDt > 0) {
+            if (prevDt > 0 && !wasParked) {
                 vel.x = (p.getX() - prevX) / prevDt;
                 vel.y = (p.getY() - prevY) / prevDt;
                 double s = vel.speed();
@@ -115,11 +131,11 @@ public final class Mover {
             p.getAnimationPlayer().getDeferredMovement(tmp, true);
         }
         boolean wishing = frame - wishFrame <= 1 && (wishX != 0 || wishY != 0);
-        int mode = p.isSprinting() ? SPRINT : p.isRunning() ? RUN : p.isSneaking() ? SNEAK : WALK;
+        int mode = modeOf(p);
         IsoGridSquare under = p.getCurrentSquare();
         // Stair and slope animation pace isn't run speed.
         boolean level = under == null || !(under.HasStairs() || under.hasSlopedSurface());
-        learnSpeed(mode, wishing && level, tmp.getLength(), dt);
+        learnSpeed(p, mode, wishing && level, tmp.getLength(), dt);
 
         double wishSpeed = wishing ? maxSpeed[mode] : 0;
         double runSpeed = maxSpeed[RUN];
@@ -174,27 +190,93 @@ public final class Mover {
     private static boolean computeOwns(IsoPlayer p) {
         String state = p.getCurrentActionContextStateName();
         lastState = state == null ? "?" : state;
-        if (!baseActive || state == null) return false;
-        if (p.isDead() || p.isAsleep() || p.getVehicle() != null || p.isSeatedInVehicle()) return false;
-        if (p.isSitOnGround() || p.isSittingOnFurniture() || p.isClimbing()) return false;
-        if (p.isRagdoll() || p.isGrappling() || p.isBeingGrappled()) return false;
-        if (p.getPath2() != null || p.hasTimedActions()) return false;
-        return OWNED_STATES.contains(state) || (!grounded && AIR_OWNED_STATES.contains(state));
+        blockedBy = whyNotOwned(p, state);
+        return blockedBy == null;
     }
 
-    private static void learnSpeed(int mode, boolean wishing, float rootLen, double dt) {
+    /** First thing keeping us from driving, null when we drive. */
+    private static String whyNotOwned(IsoPlayer p, String state) {
+        if (!Cfg.enabled) return "disabled";
+        if (GameClient.client && !Net.serverReady) return "waiting for server";
+        if (Cfg.fpOnly && !Viewpoint.active()) return "not first person";
+        if (!baseActive || state == null) return "inactive";
+        if (p.isDead() || p.isAsleep()) return "dead or asleep";
+        if (p.getVehicle() != null || p.isSeatedInVehicle()) return "in vehicle";
+        if (p.isRagdoll() || p.isGrappling() || p.isBeingGrappled()) return "ragdoll or grapple";
+        if (p.getPath2() != null) return "pathing";
+        // Not hasTimedActions, its IsPerformingAnAction flag can outlive a broken action.
+        if (!p.getCharacterActions().isEmpty()) return "timed action";
+        // Ride mods move the player themselves.
+        if (riding) return "ride mod";
+        if (p.getIgnoreMovement() || p.getVariableBoolean("HorseRiding") || p.getVariableBoolean("SkateboardActive")) return "movement locked";
+        if (OWNED_STATES.contains(state) || (!grounded && AIR_OWNED_STATES.contains(state))) return null;
+        return "state " + state;
+    }
+
+    /** Puts jump state back to rest, on toggle. */
+    static void softReset() {
+        vel.x = vel.y = 0;
+        tickAcc = 0;
+        wasOwned = false;
+        airborneUnderMod = false;
+        jumpedThisAir = false;
+        jumpQueuedAt = 0;
+        lastJumpDown = false;
+        riding = false;
+        rideSpeed = 0;
+        Zombies.jumpLockUntil = 0;
+        JumpCam.camLocked = false;
+        Landing.inLanding = false;
+        IsoPlayer p = self;
+        if (p != null) {
+            grounded = readOnGround(p);
+            p.setVariable(ANIM_VAR, false);
+            animOn = false;
+        }
+    }
+
+    private static void learnSpeed(IsoPlayer p, int mode, boolean wishing, float rootLen, double dt) {
         if (mode != lastMode || !wishing || !grounded) {
             modeHeldTime = 0;
+            rideSpeed = 0;
             lastMode = mode;
             return;
         }
         modeHeldTime += dt;
         // Skip vanilla's 0.55 s speed ramp.
-        if (modeHeldTime < 0.7 || dt <= 0 || rootLen <= 0) return;
+        if (modeHeldTime < 0.7 || dt <= 0) return;
         double s = rootLen / dt;
+        rideSpeed = modeHeldTime - dt < 0.7 ? s : rideSpeed + (s - rideSpeed) * Math.min(1, 2 * dt);
+        if (modeHeldTime >= 1.2) {
+            // A mod's own animation only gets the learning margin, a vanilla one sped up gets more.
+            boolean mod = ModAnims.playing(p);
+            double base = BASE_SPEED[mode];
+            if (rideSpeed > base * (mod ? LEARN_CAP : RIDE_RATIO) || mod && rideSpeed < base * RIDE_SLOW_RATIO) {
+                riding = true;
+                return;
+            }
+        }
         if (s < 0.2 || s > 25) return;
-        double rate = s > maxSpeed[mode] ? 3.0 : 0.5;
+        double rate = s > maxSpeed[mode] ? 3.0 : 1.5;
         maxSpeed[mode] += (s - maxSpeed[mode]) * Math.min(1, rate * dt);
+        maxSpeed[mode] = Math.min(maxSpeed[mode], BASE_SPEED[mode] * LEARN_CAP);
+    }
+
+    private static int modeOf(IsoPlayer p) {
+        return p.isSprinting() ? SPRINT : p.isRunning() ? RUN : p.isSneaking() ? SNEAK : WALK;
+    }
+
+    /** Take back over once you let go of the keys, or a ride mod slows to walking pace. */
+    private static void checkRideOver(IsoPlayer p, double dt) {
+        double moved = prevDt > 0 ? Math.hypot(p.getX() - prevX, p.getY() - prevY) / prevDt : 0;
+        rideSpeed += (moved - rideSpeed) * Math.min(1, 2 * dt);
+        boolean wishing = frame - wishFrame <= 1 && (wishX != 0 || wishY != 0);
+        boolean slowed = rideSpeed < BASE_SPEED[modeOf(p)] * LEARN_CAP && !ModAnims.playing(p);
+        if (!baseActive || !wishing || slowed || p.getVehicle() != null) {
+            riding = false;
+            rideSpeed = 0;
+            modeHeldTime = 0;
+        }
     }
 
     /** Source ground tick, friction then accelerate. */
@@ -223,10 +305,12 @@ public final class Mover {
         boolean pressed = jumpEdge || buffered;
         boolean held = !pressed && Cfg.autohop && jumpDown;
         if (!pressed && !held) return;
-        if (now < Zombies.jumpLockUntil || ceilingBlocked(p)) return;
+        if (now < Zombies.jumpLockUntil) { jumpBlockedBy = "grabbed"; return; }
+        if (ceilingBlocked(p)) { jumpBlockedBy = "ceiling"; return; }
 
         int tired = p.getMoodles().getMoodleLevel(MoodleType.ENDURANCE);
-        if (Cfg.exhaustedNoJump && tired >= 4) return;
+        if (Cfg.exhaustedNoJump && tired >= 4) { jumpBlockedBy = "exhausted"; return; }
+        jumpBlockedBy = null;
         double height = Cfg.jumpHeight;
         if (Cfg.tiredJumps) height *= 1 - 0.08 * tired;
         if (Cfg.heavyJumps) height *= 1 - 0.10 * p.getMoodles().getMoodleLevel(MoodleType.HEAVY_LOAD);
@@ -441,5 +525,9 @@ public final class Mover {
         Floors.ride = Floors.floorVehicle = null;
         Landing.hasLastLand = false;
         Floors.floorKind = Floors.FLOOR_GROUND;
+        System.arraycopy(BASE_SPEED, 0, maxSpeed, 0, maxSpeed.length);
+        lastMode = -1;
+        riding = false;
+        rideSpeed = 0;
     }
 }
