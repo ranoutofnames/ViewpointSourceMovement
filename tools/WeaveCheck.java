@@ -25,13 +25,7 @@ import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
 import net.bytebuddy.pool.TypePool;
 
-/**
- * Offline sanity check for the mod's @Patch classes: rewrite Patch.* annotations to Advice.* the way
- * ZombieBuddy's PatchTransformer does, weave them into the real game classes, confirm each target
- * method now calls into sourcemove.Mover, then load the woven classes so the JVM verifier runs.
- *
- * Usage: java -cp <zb.jar;game.jar;modclasses;toolclasses> WeaveCheck <game.jar> <zb.jar> <modclasses dir> <patch class>...
- */
+/** Weaves the @Patch classes into the game classes as ZombieBuddy does, then verifies and access-checks them. */
 public class WeaveCheck {
     static final Map<String, String> DESC = new HashMap<>();
     static {
@@ -45,7 +39,7 @@ public class WeaveCheck {
 
     public static void main(String[] args) throws Exception {
         File gameJar = new File(args[0]), zbJar = new File(args[1]), modDir = new File(args[2]);
-        // Optional --jar=path entries: other mods whose classes we patch (e.g. Viewpoint).
+        // --jar=path for other mods we patch (Viewpoint).
         List<File> extraJars = new ArrayList<>();
         List<String> patches = new ArrayList<>();
         for (String a : List.of(args).subList(3, args.length)) {
@@ -77,6 +71,13 @@ public class WeaveCheck {
 
         Map<String, byte[]> woven = new HashMap<>();
         int failures = 0;
+        // Advice is inlined into game classes, so what it touches must be public.
+        for (String p : patches) {
+            for (String problem : notPublic(base.locate(p).resolve(), p)) {
+                System.out.println("ACCESS FAIL " + p + ": " + problem);
+                failures++;
+            }
+        }
         for (var t : byTarget.entrySet()) {
             DynamicType.Builder<?> b = new ByteBuddy().redefine(pool.describe(t.getKey()).resolve(), loc);
             for (var m : t.getValue().entrySet()) {
@@ -117,7 +118,7 @@ public class WeaveCheck {
                 System.out.println("VERIFY FAIL " + target + ": " + e);
                 failures++;
             } catch (Throwable e) {
-                // Static init needs a running game; getting this far means the class linked and verified.
+                // Static init needs the game; it verified.
                 System.out.println("VERIFY OK  " + target + " (static init failed without a running game: " + e.getClass().getSimpleName() + ")");
             }
         }
@@ -125,10 +126,7 @@ public class WeaveCheck {
         System.exit(failures == 0 ? 0 : 1);
     }
 
-    /**
-     * Like ZombieBuddy's PatchEngine: match by name, and when advice declares @Patch.Argument(i)
-     * parameters, only overloads whose i-th parameter is assignable to that type.
-     */
+    /** ZombieBuddy's matching, by name narrowed by @Patch.Argument types. */
     static ElementMatcher.Junction<MethodDescription> matcher(Class<?> patch, String methodName) {
         ElementMatcher.Junction<MethodDescription> m = ElementMatchers.named(methodName);
         for (Method am : patch.getDeclaredMethods()) {
@@ -145,7 +143,7 @@ public class WeaveCheck {
         return m;
     }
 
-    /** Same descriptor/skipOn rewriting as ZombieBuddy's PatchTransformer. */
+    /** ZombieBuddy's annotation rewriting. */
     static byte[] rewrite(byte[] classBytes) {
         ClassReader cr = new ClassReader(classBytes);
         ClassWriter cw = new ClassWriter(cr, 0);
@@ -179,7 +177,53 @@ public class WeaveCheck {
         return cw.toByteArray();
     }
 
-    /** True if the named method's bytecode invokes one of our (sourcemove.*) statics. */
+    /** Non-public sourcemove members the patch uses. */
+    static List<String> notPublic(byte[] bytes, String patch) {
+        List<String> out = new ArrayList<>();
+        String self = patch.replace('.', '/');
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String d, String sig, String[] ex) {
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override
+                    public void visitMethodInsn(int op, String owner, String n, String desc, boolean itf) {
+                        check(owner, n, desc, true);
+                    }
+
+                    @Override
+                    public void visitFieldInsn(int op, String owner, String n, String desc) {
+                        check(owner, n, desc, false);
+                    }
+
+                    void check(String owner, String n, String desc, boolean method) {
+                        if (!owner.startsWith("sourcemove/") || owner.equals(self)) return;
+                        try {
+                            Class<?> c = Class.forName(owner.replace('/', '.'));
+                            if (!java.lang.reflect.Modifier.isPublic(c.getModifiers())) {
+                                out.add("class " + c.getName() + " is not public");
+                                return;
+                            }
+                            int mods = -1;
+                            if (method) {
+                                for (Method m : c.getDeclaredMethods()) {
+                                    if (m.getName().equals(n) && Type.getMethodDescriptor(m).equals(desc)) mods = m.getModifiers();
+                                }
+                            } else {
+                                mods = c.getDeclaredField(n).getModifiers();
+                            }
+                            if (mods == -1) out.add(c.getName() + "." + n + " not found");
+                            else if (!java.lang.reflect.Modifier.isPublic(mods)) out.add(c.getName() + "." + n + " is not public");
+                        } catch (ReflectiveOperationException e) {
+                            out.add(owner + "." + n + ": " + e);
+                        }
+                    }
+                };
+            }
+        }, 0);
+        return out;
+    }
+
+    /** The method calls into sourcemove. */
     static boolean methodCallsMover(byte[] bytes, String methodName) {
         boolean[] found = {false};
         new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {

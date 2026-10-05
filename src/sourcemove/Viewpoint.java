@@ -2,11 +2,7 @@ package sourcemove;
 
 import java.lang.reflect.Field;
 
-/**
- * Soft link to the Viewpoint mod's camera state. Viewpoint is proprietary and may rename things between
- * versions, so we resolve by reflection once and go inert if it fails. Nothing of Viewpoint is copied or
- * modified; the eye offset is only read and overridden at runtime while a jump is in progress.
- */
+/** Reflection link to Viewpoint's camera; inert if it changes. Nothing of Viewpoint is copied. */
 public final class Viewpoint {
     private Viewpoint() {}
 
@@ -14,9 +10,9 @@ public final class Viewpoint {
     private static Field viewEnabled;
 
     private static boolean eyeResolved;
-    /** viewpoint.input.Controls.eyeX/Y/Z: the smoothed head-bone offset from the feet, in render meters (Y up). */
+    /** Controls.eyeX/Y/Z, smoothed head offset from the feet (render meters). */
     private static Field offX, offY, offZ;
-    /** viewpoint.core.Frame.eyeX/Y/Z: the eye position Viewpoint renders from. */
+    /** Frame.eyeX/Y/Z, the eye Viewpoint renders from. */
     private static Field frameX, frameY, frameZ;
 
     private static void resolve() {
@@ -30,7 +26,7 @@ public final class Viewpoint {
         }
     }
 
-    /** True while Viewpoint is rendering its own camera (first person or its third-person boom). */
+    /** Viewpoint's own camera is on. */
     public static boolean active() {
         if (!resolved) resolve();
         if (viewEnabled == null) return false;
@@ -66,7 +62,7 @@ public final class Viewpoint {
         return f;
     }
 
-    /** Current smoothed head offset {x, up, z}, or null if unavailable. */
+    /** Head offset {x, up, z}, or null. */
     static float[] eyeOffset() {
         if (!resolveEye()) return null;
         try {
@@ -76,10 +72,7 @@ public final class Viewpoint {
         }
     }
 
-    /**
-     * Replace the head offset Viewpoint just applied for this frame with {@code off}, both in the rendered
-     * eye and in its smoothing state, so that when we stop, its own smoothing eases back to the real head.
-     */
+    /** Replace this frame's head offset, in the eye and its smoothing. */
     static void overrideEye(Object frame, float x, float up, float z) {
         if (frame == null || !resolveEye()) return;
         try {

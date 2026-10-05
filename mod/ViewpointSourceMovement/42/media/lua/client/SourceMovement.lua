@@ -1,7 +1,4 @@
--- Source Movement for Viewpoint. Gameplay settings are Sandbox options (pushed by SourceMovement_Shared.lua);
--- Mod Options only hold per-player preferences: keys, camera, HUD.
--- The physics lives in the Java side (sourcemove.*); this file pushes settings to it and, in multiplayer,
--- does the handshake with the server and hands relayed jump reports of other players to it.
+-- Client side. Mod Options to Java, the MP handshake, and other players' relayed jump reports.
 
 local MOD_ID = "ViewpointSourceMovement"
 local NET = "SourceMovement"
@@ -15,14 +12,15 @@ o.toggleKey    = opts:addKeyBind("toggleKey", "Toggle on/off", Keyboard.KEY_F8, 
 o.fpOnly       = opts:addTickBox("fpOnly", "First-person only", true)
 o.speedHud     = opts:addTickBox("speedHud", "Speed overlay", false)
 o.debugHud     = opts:addTickBox("debugHud", "Debug overlay", false)
+o.wireHud      = opts:addTickBox("wireHud", "Collision overlay", false)
 
 opts:addTitle("Jumping")
 o.jumpKey      = opts:addKeyBind("jumpKey", "Jump", Keyboard.KEY_SPACE)
 o.wheelJump    = opts:addTickBox("wheelJump", "Jump on mouse wheel", false)
 o.jumpAnim     = opts:addTickBox("jumpAnim", "Jumping animation", true)
 
--- Java setting name -> Mod Options entry in `o` (per player).
-local BOOLS = { enabled = "enabled", fpOnly = "fpOnly", debugHud = "debugHud", wheelJump = "wheelJump", jumpAnim = "jumpAnim" }
+-- Java setting -> Mod Options entry.
+local BOOLS = { enabled = "enabled", fpOnly = "fpOnly", debugHud = "debugHud", wireHud = "wireHud", wheelJump = "wheelJump", jumpAnim = "jumpAnim" }
 local NUMBERS = { jumpKey = "jumpKey" }
 
 local warnedMissingJava = false
@@ -54,12 +52,12 @@ local function meleeKey()
     return ok and key or nil
 end
 
--- Multiplayer: movement stays off until the server answers our hello.
+-- MP movement stays off until the server answers.
 local HELLO_EVERY_MS, HELLO_TRIES = 3000, 10
 local mp = { started = false, ready = false, tries = 0, at = 0 }
 
 local function onGameStart()
-    -- Mod options are normally only loaded when the Options screen is built; load them ourselves.
+    -- Mod Options only load with the Options screen otherwise.
     PZAPI.ModOptions:load()
     if SourceMove_netReset then SourceMove_netReset() end
     mp.started, mp.ready, mp.tries, mp.at = true, false, 0, 0
@@ -109,7 +107,7 @@ local function onKeyPressed(key)
     note(v and "Source movement ON" or "Source movement OFF")
 end
 
--- Speed, centred under where the digital watch sits (top right; its spot is kept even without a watch).
+-- Speed, under the digital watch's spot.
 local function drawSpeed()
     local clock = UIManager.getClock()
     local x, y
@@ -124,14 +122,17 @@ local function drawSpeed()
 end
 
 local function onPostUIDraw()
-    if not mp.started or not getPlayer() then return end -- in game only, never on the main menu
+    if not mp.started or not getPlayer() then return end -- not on the main menu
     if o.speedHud:getValue() and SourceMove_speed then drawSpeed() end
-    if not o.debugHud:getValue() or not SourceMove_status then return end
     local y = 60
-    for line in string.gmatch(SourceMove_status(), "[^\n]+") do
-        getTextManager():DrawString(UIFont.Small, 20, y, line, 1, 1, 1, 1)
-        y = y + 16
+    if o.debugHud:getValue() and SourceMove_status then
+        for line in string.gmatch(SourceMove_status(), "[^\n]+") do
+            getTextManager():DrawString(UIFont.Small, 20, y, line, 1, 1, 1, 1)
+            y = y + 16
+        end
+        y = y + 8
     end
+    if o.wireHud:getValue() and SourceMove_drawWire then SourceMove_drawWire(20, y) end
 end
 
 Events.OnGameStart.Add(onGameStart)

@@ -18,12 +18,7 @@ import zombie.tileDepth.TileGeometryFile;
 import zombie.tileDepth.TileGeometryManager;
 import zombie.util.list.PZArrayList;
 
-/**
- * Props you can jump onto and over. Heights come from the game's own tile geometry (media/tileGeometry.txt,
- * loaded by TileGeometryManager): boxes and upright cylinders per tile, x/z in tiles relative to the
- * square's center (x east, z south), y in meters (one Z-level = 2.449 m). Where there is none, from the
- * sprite's opaque pixel height, which matches geometry to within 0.1 level for 80% of props.
- */
+/** Props you can jump onto and over, sized from the game's tile geometry or else the sprite's pixel height. */
 final class Props {
     private Props() {}
 
@@ -31,33 +26,29 @@ final class Props {
     static final int MAT_CONCRETE = 2, MAT_WOOD = 7, MAT_CARPET = 8, MAT_METAL = 12;
 
     private static final double LEVEL_METERS = 2.44949;
-    /** Only things you could plausibly climb: up to 0.9 level (2.2 m); taller objects are wall-height. */
+    /** Taller than this (levels) is a wall. */
     private static final float MAX_TOP = 0.9f;
-    /** Shapes lower than this are base plates and feet, not something to stand on (or step into). */
+    /** Lower than this is feet and base plates. */
     private static final float MIN_FLOOR = 0.08f;
-    /** Non-solid props must top out above the 0.12 step-up, so walking through them never lifts you. */
+    /** Walk-through props must clear the step-up, or walking through them would lift you. */
     private static final float MIN_WALKTHROUGH = 0.15f;
-    /**
-     * Walk-through objects smaller than a garbage can (0.35-0.41 level tall, 0.36-0.45 square tiles) stay
-     * clutter you walk through rather than something you land on.
-     */
+    /** Walk-through clutter smaller than a garbage can stays walk-through. */
     private static final float WALKTHROUGH_MIN_TOP = 0.33f, WALKTHROUGH_MIN_AREA = 0.3f;
-    /** A non-solid object's shape counts as standing on the ground if it starts this low (levels). */
+    /** A walk-through shape this low (levels) stands on the ground. */
     private static final float GROUNDED = 0.05f;
-    /** Pixels per level in a 1x tile (a wall is 96 px tall), and the footprint depth an object's image adds. */
     private static final float PX_PER_LEVEL = 96f, FOOTPRINT_PX = 24f;
     private static final float TIRE_WALL = 0.35f, TIRE_WALL_LOW = 0.2f;
-    /** Two-tile tents (camping_04): ridge 1.15 m; each side's slope starts 0.1 tile in from the outer edge. */
+    /** Two-tile tents, ridge height (levels) and where the slope starts (tiles). */
     private static final float BIG_TENT_TOP = 0.47f, BIG_TENT_INSET = 0.1f;
-    /** Objects the game flags IsLow but has no shape for: about counter height. */
+    /** IsLow objects with no shape, about counter height. */
     private static final float LOW_PROP = 0.35f;
 
-    /** One solid part of a prop: an oriented box or an upright cylinder, top in levels. */
+    /** A box or upright cylinder; top in levels. */
     static final class Shape {
         float cx, cy, hx, hy, cos = 1, sin, r, top, bottom;
         boolean round;
 
-        /** Thinner than 0.2 tiles (a sign panel, a rail, a post): gets fence-style footing. */
+        /** Signs, rails and posts get fence-style footing. */
         boolean thin() {
             return round ? r < 0.1f : Math.min(hx, hy) < 0.1f;
         }
@@ -74,36 +65,36 @@ final class Props {
         }
     }
 
-    /** A prop sprite's shapes plus the footstep material to use on top of it. */
+    /** A prop sprite's shapes and footstep material. */
     static final class Prop {
         final Shape[] shapes;
         final float entryTop;
         final int material;
         final String name;
-        /** A-frame sides you can walk up and trimp off (tents): side angle in radians, 0 = none. */
+        /** Tent side angle (radians); 0 = no ramp. */
         float rampAngle;
-        /** The ridge runs north-south (sides face east and west); else east-west. */
+        /** Ridge runs north-south. */
         boolean ridgeAlongY;
-        /**
-         * One side per square (two-tile tents): the slope rises across the square to the ridge on the edge it
-         * shares with the tent's other half. Otherwise the whole A-frame is in one square, ridge down its middle.
-         */
+        /** Two-tile tent half, the slope rises across the square to the shared edge. */
         boolean halfRamp;
-        /** How far in from the square's outer edge the slope starts (tiles). */
+        /** Where the slope starts in from the outer edge (tiles). */
         float rampInset;
 
         Prop(Shape[] shapes, int material, String name) {
             this.shapes = shapes;
             this.material = material;
             this.name = name;
-            // The principal surface (largest footprint) is what you step onto: a bench's seat, not its
-            // backrest; a bed's mattress, not its headboard; a fountain's basin, not its spout.
+            // You step onto the largest surface, the seat not the backrest.
             this.entryTop = shapes.length == 0 ? 0 : principal(shapes).top;
         }
     }
 
-    /** Sentinel: blocks movement and isn't jumpable. */
+    /** In the way and not jumpable. */
     private static final Prop BLOCKER = new Prop(new Shape[0], 0, null);
+
+    static boolean jumpable(Prop p) {
+        return p != null && p != BLOCKER;
+    }
     private static final Map<IsoSprite, Prop> cache = new IdentityHashMap<>();
     private static int cachedMode = -1;
 
@@ -111,7 +102,7 @@ final class Props {
         return p.has(IsoFlagType.solid) || p.has(IsoFlagType.solidtrans);
     }
 
-    /** null = not a prop and not in the way; {@link #BLOCKER} = in the way; else a jumpable prop. */
+    /** null = not in the way, BLOCKER = in the way, else jumpable. */
     static Prop prop(IsoObject o) {
         IsoSprite s = o.getSprite();
         if (s == null) return null;
@@ -133,25 +124,17 @@ final class Props {
         return p;
     }
 
-    /** Tilesets whose solid objects are never props: trees, tents and shelters, cliff/terrain blends. */
+    /** Tilesets that are never props. */
     private static final String[] NEVER = {"vegetation_trees", "vegetation_foliage", "f_", "d_plants", "blends_", "radio_tower", "e_"};
 
-    /** Bushes and hedges are never something to stand on (the game tags plants "vegitation", sic). */
+    /** The game tags plants "vegitation" (sic). */
     private static boolean bush(PropertyContainer p, String name) {
-        return p.has("vegitation") || "Bush".equals(name) || "Hedge".equals(name);
+        return p.has(IsoFlagType.vegitation) || "Bush".equals(name) || "Hedge".equals(name);
     }
-    /** Non-solid objects that make poor footing even with a shape: bedding, plants, curtains, floor decals. */
+    /** Walk-through things that make poor footing. */
     private static final String[] NOT_FLOORS = {"camping_02", "vegetation_", "fixtures_windows_curtains", "floors_", "fixtures_stairs", "damaged_objects"};
 
-    /**
-     * Every solid object is a prop you can jump onto and over, at its real height, if that height can be
-     * found: its own tile geometry, else the geometry of the tile the game aliases it to for depth
-     * (tileDepthTextureAssignments.txt: rotations and sibling tiles of multi-tile objects), else fixed
-     * heights for known cases, else its sprite's pixel height, else a generic low height for objects the
-     * game flags IsLow. Anything taller than 0.9 level stays solid. Non-solid objects you can walk through
-     * become things you can stand on when they're low (IsLow) or stand on the ground with a known shape
-     * (signs, chairs, toilets, gravestones, the low tire stacks).
-     */
+    /** Prop height from its geometry, an aliased tile's geometry, fixed values, its pixels, or IsLow; taller than MAX_TOP stays solid. */
     private static Prop build(IsoSprite s, int mode) {
         PropertyContainer p = s.getProperties();
         if (p == null) return null;
@@ -165,14 +148,13 @@ final class Props {
         boolean low = p.has("IsLow");
         if (tileset == null || startsWithAny(tileset, NEVER) || bush(p, name)) return blocks ? BLOCKER : null;
 
-        // Racetrack tire walls (Irvington speedway): straight, end and low pieces; only some are tagged Rubber,
-        // and their geometry is a one-level placeholder.
+        // Speedway tire walls, only some tagged Rubber and the geometry is a placeholder.
         boolean raceTires = "recreational_sports_01".equals(tileset) && index >= 136 && index <= 149;
         boolean tires = raceTires || "Tires".equals(name) || "Tire".equals(name);
         boolean fountain = "location_community_park_01".equals(tileset) && index >= 40 && index <= 48;
         boolean bench = name != null && name.endsWith("Bench") || "Low Bench".equals(group);
         float override = topOverride(tileset, index);
-        // St. Peregrin Hospital's low Emergency sign: asked for by name, though it's below the walk-through cutoff.
+        // St. Peregrin's Emergency sign, asked for though it's small.
         boolean emergencySign = "location_community_medical_01".equals(tileset)
                 && (index >= 84 && index <= 87 || index >= 92 && index <= 95);
         boolean named = tires || fountain || bench || emergencySign || "Bird Bath".equals(name) || override > 0;
@@ -183,8 +165,7 @@ final class Props {
         int material = material(p, tires, fountain);
         if (raceTires) return new Prop(new Shape[] {square(low ? TIRE_WALL_LOW : TIRE_WALL)}, material, "Tire wall");
         if (blocks && bigTent(tileset, p)) {
-            // Two tiles wide, ridge on the line between them (tileGeometry: the gable is a triangle 1.8 tiles
-            // wide and 1.15 m tall, the visible roof panel 53.7 degrees), sides about 52 degrees.
+            // Ridge on the line between the two tiles, sides about 52 degrees.
             Prop tent = new Prop(new Shape[] {square(BIG_TENT_TOP)}, material, label);
             tent.rampAngle = (float) Math.atan(BIG_TENT_TOP * LEVEL_METERS / (1 - BIG_TENT_INSET));
             tent.halfRamp = true;
@@ -200,27 +181,28 @@ final class Props {
             if (shapes.length == 0) shapes = new Shape[] {square(override)};
             for (Shape sh : shapes) sh.top = override;
         } else if (shapes.length > 0) {
-            // You walk through non-solid things; only ground-standing ones (not wall posters, shelves,
-            // hanging signs) are something to land on.
-            // Walk-through clutter: only ground-standing things at least garbage-can sized are something to land on.
+            // Walk-through only counts ground-standing, garbage-can sized things.
             if (!blocks && !named) {
                 Shape main = principal(shapes);
                 if (main.bottom > GROUNDED || main.top < WALKTHROUGH_MIN_TOP || main.area() < WALKTHROUGH_MIN_AREA) return null;
             }
         } else {
-            if (!blocks && !named) return null; // walk-through with no known shape: can't tell its size
+            if (!blocks && !named) return null; // walk-through with no shape, size unknown
             float fixed = fixedHeight(name);
-            if (fixed <= 0 && blocks) fixed = pixelHeight(s);
+            // The image misses stacked crates and slanted tops; the item surface catches those.
+            if (fixed <= 0 && blocks) fixed = Math.max(pixelHeight(s), surfaceHeight(p));
             if (fixed <= 0 && blocks) fixed = siblingPixelHeight(s, tileset, index, p);
             if (fixed <= 0 && (low || named)) fixed = LOW_PROP;
             if (fixed <= 0) return blocks ? BLOCKER : null;
             shapes = new Shape[] {square(fixed)};
         }
         Prop prop = new Prop(shapes, material, label);
-        // Something you walk through must be taller than a step, or walking over it would bob you up.
+        // Too low to measure (a beach chair's leg rest), a small hop.
+        if (blocks && prop.entryTop < MIN_FLOOR) prop = new Prop(new Shape[] {square(MIN_WALKTHROUGH)}, material, label);
+        // Walk-through props must clear a step.
         float min = blocks ? MIN_FLOOR : MIN_WALKTHROUGH;
         if (prop.entryTop < min || prop.entryTop > MAX_TOP) return blocks ? BLOCKER : null;
-        // Small tents are A-frames spanning the tile: sides rise from its edges to the ridge (about 64 degrees).
+        // Small tents are an A-frame across the tile, about 64 degrees.
         if (smallTent(tileset, p)) {
             prop.rampAngle = (float) Math.atan(prop.entryTop * LEVEL_METERS / 0.5);
             String facing = p.get("Facing");
@@ -239,36 +221,28 @@ final class Props {
             IsoFlagType.attachedNW, IsoFlagType.attachedSE, IsoFlagType.attachedCeiling, IsoFlagType.attachedSurface};
     private static final String[] STAIRS = {"stairsTN", "stairsMN", "stairsBN", "stairsTW", "stairsMW", "stairsBW"};
 
-    /**
-     * Walls, fences, windows and doors sit on square edges and have their own heights in {@link Ledges};
-     * wall-mounted, ceiling and tabletop objects aren't ground props; stairs have their own Z.
-     */
+    /** Edge objects (Ledges), wall-mounted and tabletop items, and stairs aren't ground props. */
     private static boolean edgeOrAttached(PropertyContainer p) {
         for (IsoFlagType f : EDGE_FLAGS) if (p.has(f)) return true;
         for (String st : STAIRS) if (p.has(st)) return true;
         return false;
     }
 
-    /**
-     * Measured tops (levels) where the game's geometry is a full-height placeholder. The St. Peregrin
-     * Hospital name letters stand 0.20-0.52 level (measured per pixel column against the tile's ground line).
-     */
+    /** Measured tops where the geometry is a placeholder (St. Peregrin's sign letters). */
     private static float topOverride(String tileset, int index) {
         if ("signs_one-off_04".equals(tileset) && index >= 14 && index <= 27) return 0.52f;
         return 0;
     }
 
-    /** Heights (levels) for props with no geometry at all. */
     private static float fixedHeight(String name) {
         if ("Single Stacked Hay".equals(name)) return 0.18f;
         if ("Double Stacked Hay".equals(name)) return 0.36f;
         return 0;
     }
 
-    /**
-     * Height from the sprite's trimmed image: its opaque pixels span the object's height plus the depth of
-     * its footprint. Checked against every solid prop with geometry: median error -0.02 level.
-     */
+    private static final java.util.Set<String> STACKS = java.util.Set.of("Crate", "Military Barrier", "Cartbox");
+
+    /** Pixel height minus footprint depth; median error -0.02 level. */
     private static float pixelHeight(IsoSprite s) {
         Texture tex = s.texture;
         if (tex == null) {
@@ -280,15 +254,26 @@ final class Props {
         }
         if (tex == null || tex.getHeightOrig() <= 0) return 0;
         float scale = tex.getHeightOrig() / 128f;
-        float px = tex.getHeight() / scale - FOOTPRINT_PX;
+        // The top crate of a stack is drawn up high, so measure from the tile bottom.
+        String name = s.getProperties() != null ? s.getProperties().get("CustomName") : null;
+        float h = name != null && STACKS.contains(name) ? Math.max(tex.getHeight(), tex.getHeightOrig() - tex.getOffsetY())
+                : tex.getHeight();
+        float px = h / scale - FOOTPRINT_PX;
         return px > 0 ? px / PX_PER_LEVEL : 0;
     }
 
-    /**
-     * Multi-tile objects (big tents) have solid tiles with no image of their own: the neighbouring tiles
-     * draw over them. Use the tallest sibling of the same object (same name, group and facing, nearby in
-     * the tileset) so the object doesn't have unjumpable holes.
-     */
+    /** The tile's item surface (levels), 0 if none. */
+    private static float surfaceHeight(PropertyContainer p) {
+        String v = p.get("Surface");
+        if (v == null) return 0;
+        try {
+            return Integer.parseInt(v.trim()) / PX_PER_LEVEL;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** Tallest sibling tile of a multi-tile object, for tiles with no image. */
     private static float siblingPixelHeight(IsoSprite s, String tileset, int index, PropertyContainer p) {
         String name = p.get("CustomName");
         if (name == null) return 0;
@@ -302,7 +287,7 @@ final class Props {
             if (!name.equals(sp.get("CustomName")) || !java.util.Objects.equals(group, sp.get("GroupName"))
                     || !java.util.Objects.equals(facing, sp.get("Facing"))) continue;
             float h = pixelHeight(sib);
-            if (h <= MAX_TOP) best = Math.max(best, h); // skip odd tall slices (a tent's flap tile)
+            if (h <= MAX_TOP) best = Math.max(best, h); // skip tall slices like a tent flap
         }
         return best;
     }
@@ -325,7 +310,7 @@ final class Props {
         return false;
     }
 
-    /** The tile whose depth texture (and so shape) this sprite borrows, e.g. the other rotation of a crate. */
+    /** Geometry of the tile this sprite borrows its depth from. */
     private static Shape[] aliasedGeometry(String spriteName) {
         if (spriteName == null) return new Shape[0];
         String alias;
@@ -342,6 +327,12 @@ final class Props {
         } catch (NumberFormatException e) {
             return new Shape[0];
         }
+    }
+
+    /** A sprite's own or aliased geometry, around its square's center. */
+    static Shape[] shapes(IsoSprite s) {
+        Shape[] g = geometry(tileset(s), s.tileSheetIndex);
+        return g.length > 0 ? g : aliasedGeometry(s.getName());
     }
 
     private static String tileset(IsoSprite s) {
@@ -385,7 +376,7 @@ final class Props {
                 float c = (float) Math.cos(yaw), sn = (float) Math.sin(yaw);
                 float mx = (b.min.x + b.max.x) / 2, mz = (b.min.z + b.max.z) / 2;
                 Shape s = new Shape();
-                // JOML rotateY: x' = x cos + z sin, z' = -x sin + z cos
+                // JOML rotateY
                 s.cx = b.translate.x + mx * c + mz * sn;
                 s.cy = b.translate.z - mx * sn + mz * c;
                 s.hx = (b.max.x - b.min.x) / 2;
@@ -416,11 +407,7 @@ final class Props {
         return out.toArray(new Shape[0]);
     }
 
-    /**
-     * How high your feet must be to move into this square: NaN if something in it can't be jumped,
-     * 0 if nothing blocks, else the lowest top of the tallest prop in it (you can climb from a bench seat
-     * over its backrest, but not walk into the seat from the ground).
-     */
+    /** Feet height needed to enter. NaN = never, 0 = clear, else the tallest prop's main surface. */
     static double entryTop(IsoGridSquare sq) {
         if (sq == null) return 0;
         if (!enabledAt(sq)) return sq.isSolid() || sq.isSolidTrans() ? Double.NaN : 0;
@@ -430,13 +417,13 @@ final class Props {
         for (int i = 0; i < objects.size(); i++) {
             IsoObject o = objects.get(i);
             if (o.getSprite() == null || o.getSprite().getProperties() == null || !obstacle(o.getSprite().getProperties())) continue;
-            if (o.getSprite().getProperties().has(IsoFlagType.water)) continue; // the water itself: see Water
+            if (o.getSprite().getProperties().has(IsoFlagType.water)) continue; // the water itself, see Water
             Prop p = prop(o);
             if (p == null || p == BLOCKER) return Double.NaN;
             top = Math.max(top, p.entryTop);
             found = true;
         }
-        // A solid square whose blocker we couldn't attribute to a sprite stays solid (open water is Water's).
+        // Unattributed solid square stays solid.
         if (!found && (sq.isSolid() || sq.isSolidTrans()) && !Water.open(sq)) return Double.NaN;
         return top;
     }
@@ -445,12 +432,11 @@ final class Props {
         return "camping_01".equals(tileset) && "Tent".equals(p.get("CustomName")) && "Small".equals(p.get("GroupName"));
     }
 
-    /** The two-tile tents (yellow, blue, brown, green), camping_04. */
     private static boolean bigTent(String tileset, PropertyContainer p) {
         return "camping_04".equals(tileset) && "Tent".equals(p.get("CustomName"));
     }
 
-    /** A tent stands on this square (by name, so it works on a server, which can't measure props). */
+    /** By name, so the server can tell too. */
     static boolean hasTent(IsoGridSquare sq) {
         if (sq == null) return false;
         PZArrayList<IsoObject> objects = sq.getObjects();
@@ -463,12 +449,11 @@ final class Props {
         return false;
     }
 
-    /** Distance from (x, y) to square (gx, gy); 0 inside it. */
     static double squareDistance(int gx, int gy, double x, double y) {
         return Math.hypot(Math.max(0, Math.max(gx - x, x - (gx + 1))), Math.max(0, Math.max(gy - y, y - (gy + 1))));
     }
 
-    /** The trimpable prop (a tent) on this square, or null. */
+    /** The tent on this square, or null. */
     static Prop ramp(IsoGridSquare sq) {
         if (sq == null || !enabledAt(sq)) return null;
         PZArrayList<IsoObject> objects = sq.getObjects();
@@ -479,13 +464,13 @@ final class Props {
         return null;
     }
 
-    /** Props count on this square: everywhere, or only outside buildings. */
+    /** Everywhere, or outdoors only. */
     private static boolean enabledAt(IsoGridSquare sq) {
         int mode = Cfg.propMode;
         return mode == MODE_ALL || (mode == MODE_OUTDOOR && sq.getRoom() == null);
     }
 
-    /** HUD: what blocks this square and whether it's jumpable, e.g. "Tire wall 0.35" or "industry_01_53 blocks". */
+    /** What's in the square and whether it's jumpable, for the HUD. */
     static String describe(IsoGridSquare sq) {
         if (sq == null) return "-";
         StringBuilder sb = new StringBuilder();
@@ -507,51 +492,39 @@ final class Props {
         return sb.length() == 0 ? "clear" : sb.toString();
     }
 
-    /** Output of {@link #topUnder}: the prop you're standing on. */
+    /** The prop topUnder found. */
     static Prop lastProp;
-    /** Square of {@link #lastProp}. */
     static int lastPropX, lastPropY;
-    /**
-     * How far below a ramp's surface you can be and still be put on it: more than one frame's climb up a steep
-     * tent side, so walking up it never loses the floor. Its edges are what keep you from walking into its middle.
-     */
+    /** How far below a ramp's surface you can be and still be put on it. */
     private static final double RAMP_STEP = 0.45;
-    /**
-     * Collision leeway on a ramp: the body (radius 0.3) overlaps the slope ahead of its center, which on a tent's
-     * 52 degree side is ~0.16 level higher, plus a frame's climb. With only the 0.12 step-up you'd catch on the
-     * other half of a tent near its ridge, going up or down.
-     */
+    /** Collision leeway on a ramp, the body overlaps the slope ahead of its center. */
     static final double RAMP_ALLOW = 0.3;
 
-    /** Height (levels above its square's floor) of a ramp prop's surface at (x, y), clamped into its square. */
+    /** Ramp surface height at (x, y) above its square's floor. */
     static double rampHeightAt(IsoCell cell, Prop p, int gx, int gy, int z, double x, double y) {
-        double u = clamp01(p.ridgeAlongY ? x - gx : y - gy); // across the ridge
+        double u = Physics.clamp01(p.ridgeAlongY ? x - gx : y - gy); // across the ridge
         if (!p.halfRamp) return p.entryTop * Math.max(0, 1 - Math.abs(u - 0.5) / 0.5);
         int side = ridgeSide(cell, p, gx, gy, z);
-        if (side == 0) return p.entryTop; // can't tell which half: flat
-        double d = side > 0 ? u : 1 - u; // distance from the outer edge
-        return p.entryTop * clamp01((d - p.rampInset) / (1 - p.rampInset));
+        if (side == 0) return p.entryTop; // unknown half, flat
+        double d = side > 0 ? u : 1 - u; // from the outer edge
+        return p.entryTop * Physics.clamp01((d - p.rampInset) / (1 - p.rampInset));
     }
 
-    /** Uphill direction across the ridge axis at (x, y): +1, -1, or 0 on the ridge or flat. */
+    /** +1 or -1 uphill across the ridge, 0 on it. */
     static int uphill(IsoCell cell, Prop p, int gx, int gy, int z, double x, double y) {
         if (p.halfRamp) return ridgeSide(cell, p, gx, gy, z);
         double u = p.ridgeAlongY ? x - gx : y - gy;
         return u < 0.48 ? 1 : u > 0.52 ? -1 : 0;
     }
 
-    /** Which edge of a two-tile tent's square the ridge is on: toward the neighbour that's the tent's other half. */
+    /** Which side of the square the ridge is on. */
     private static int ridgeSide(IsoCell cell, Prop p, int gx, int gy, int z) {
         boolean hi = p.ridgeAlongY ? hasTent(cell.getGridSquare(gx + 1, gy, z)) : hasTent(cell.getGridSquare(gx, gy + 1, z));
         boolean lo = p.ridgeAlongY ? hasTent(cell.getGridSquare(gx - 1, gy, z)) : hasTent(cell.getGridSquare(gx, gy - 1, z));
         return hi == lo ? 0 : hi ? 1 : -1;
     }
 
-    private static double clamp01(double v) {
-        return Math.max(0, Math.min(1, v));
-    }
-
-    /** Absolute Z of the highest prop top under (x,y) that your feet can be on (within stepUp), or -1. */
+    /** Highest prop top under (x, y) your feet can be on, or -1. */
     static double topUnder(IsoCell cell, double x, double y, int level, double feet, double stepUp, double margin) {
         double best = -1;
         lastProp = null;
@@ -563,10 +536,11 @@ final class Props {
                 PZArrayList<IsoObject> objects = sq.getObjects();
                 double lx = x - (gx + 0.5), ly = y - (gy + 0.5);
                 for (int i = 0; i < objects.size(); i++) {
-                    Prop p = prop(objects.get(i));
+                    IsoObject o = objects.get(i);
+                    Prop p = prop(o);
                     if (p == null || p == BLOCKER) continue;
                     if (p.rampAngle > 0) {
-                        // A slope: the floor right under you, following the A-frame.
+                        // Slope, the floor right under you.
                         if (x < gx || x > gx + 1 || y < gy || y > gy + 1) continue;
                         double top = level + rampHeightAt(cell, p, gx, gy, level, x, y);
                         if (top <= best || feet < top - RAMP_STEP) continue;
@@ -575,6 +549,15 @@ final class Props {
                         lastPropX = gx;
                         lastPropY = gy;
                         continue;
+                    }
+                    // Solid props block their whole square, so you stand anywhere over it too.
+                    double whole = level + p.entryTop;
+                    if (whole > best && feet >= whole - stepUp && obstacle(o.getSprite().getProperties())
+                            && squareDistance(gx, gy, x, y) <= margin) {
+                        best = whole;
+                        lastProp = p;
+                        lastPropX = gx;
+                        lastPropY = gy;
                     }
                     for (Shape s : p.shapes) {
                         double top = level + s.top;
@@ -591,39 +574,46 @@ final class Props {
         return best;
     }
 
-    /**
-     * For CollideWithObstacles, moving from (ox,oy) to (x,y): -1 if a solid square overlapping the circle at (x,y) is in your way,
-     * 1 if there are solid squares and you're above all of them, 0 if there are none. Open water counts as
-     * cleared while airborne or standing above it ({@link Water}).
-     */
+    /** Car-area pass. -1 if a solid square blocks the move, 1 if you're above them all, 0 if none. */
     static int squaresAt(IsoCell cell, double ox, double oy, double x, double y, double feet, double radius, double stepUp, boolean airborne) {
         int level = (int) Math.floor(feet);
+        lastBlock = null;
         boolean any = false;
         for (int gx = (int) Math.floor(x - radius); gx <= (int) Math.floor(x + radius); gx++) {
             for (int gy = (int) Math.floor(y - radius); gy <= (int) Math.floor(y + radius); gy++) {
                 IsoGridSquare sq = cell.getGridSquare(gx, gy, level);
                 if (sq == null || !(sq.isSolid() || sq.isSolidTrans())) continue;
-                // Moving away from it (stepping or falling off its edge): never in your way. Vanilla can't
-                // resolve a body that already overlaps a solid square and would stop you dead.
+                // Moving away from it never blocks.
                 if (squareDistance(gx, gy, x, y) > squareDistance(gx, gy, ox, oy) + 1e-6) {
                     any = true;
                     continue;
                 }
-                // Open water: only while above it, and then over any prop standing in it.
-                if (Water.open(sq) && !airborne && feet < level + Water.SURFACE) return -1;
+                // Water blocks only when you're in it and on the ground.
+                if (Water.open(sq) && !airborne && feet < level + Water.SURFACE) return blocked(sq, "water", feet - level, Water.SURFACE);
                 Prop slope = ramp(sq);
                 if (slope != null) {
-                    // A tent: only its surface at the point of the square nearest you has to be cleared.
+                    // Tent, only its surface nearest you counts.
                     double h = rampHeightAt(cell, slope, gx, gy, level, Math.max(gx, Math.min(gx + 1, x)), Math.max(gy, Math.min(gy + 1, y)));
-                    if (feet < level + h - RAMP_ALLOW) return -1;
+                    if (feet < level + h - RAMP_ALLOW) return blocked(sq, "tent side", feet - level, h - RAMP_ALLOW);
                     any = true;
                     continue;
                 }
                 double top = entryTop(sq);
-                if (Double.isNaN(top) || feet < level + top - stepUp) return -1;
+                if (Double.isNaN(top) || feet < level + top - stepUp) return blocked(sq, null, feet - level, top - stepUp);
                 any = true;
             }
         }
         return any ? 1 : 0;
+    }
+
+    /** Why squaresAt last blocked you, for the overlay. */
+    static String lastBlock;
+
+    private static int blocked(IsoGridSquare sq, String what, double feet, double need) {
+        if (Cfg.wireHud) {
+            lastBlock = String.format("square %d,%d: %s, feet %.2f < %s", sq.x, sq.y, what != null ? what : describe(sq), feet,
+                    Double.isNaN(need) ? "never (not jumpable)" : String.format("%.2f", need));
+        }
+        return -1;
     }
 }

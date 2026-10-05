@@ -3,7 +3,7 @@ package sourcemove;
 import se.krka.kahlua.integration.annotations.LuaMethod;
 import zombie.characters.IsoPlayer;
 
-/** Global Lua functions (registered by ZombieBuddy) used by the mod's client and server scripts. */
+/** Global Lua functions for the client and server scripts. */
 public class LuaApi {
     public LuaApi() {}
 
@@ -22,11 +22,13 @@ public class LuaApi {
             case "autohop" -> Cfg.autohop = v;
             case "wheelJump" -> Cfg.wheelJump = v;
             case "debugHud" -> Cfg.debugHud = v;
+            case "wireHud" -> Cfg.wireHud = v;
             case "sounds" -> Cfg.sounds = v;
             case "pulldown" -> Cfg.pulldown = v;
             case "windowJump" -> Cfg.windowJump = v;
             case "windowCrash" -> Cfg.windowCrash = v;
             case "windowDamage" -> Cfg.windowDamage = v;
+            case "barbedWire" -> Cfg.barbedWire = v;
             case "trimp" -> Cfg.trimp = v;
             default -> Log.warn("unknown bool setting " + key);
         }
@@ -62,26 +64,26 @@ public class LuaApi {
         }
     }
 
-    /** Client: a SourceMovement server command (OnServerCommand). {@code id} = sending player's online ID. */
+    /** Client gets a server command, id = sender's online ID. */
     @LuaMethod(name = "SourceMove_clientCommand", global = true)
     public static void clientCommand(String command, double id, String d) {
         Net.onServerCommand(command, id, d);
     }
 
-    /** Client: forget the previous server (called at game start). */
+    /** Client forgets the last server (game start). */
     @LuaMethod(name = "SourceMove_netReset", global = true)
     public static void netReset() {
         Net.reset();
     }
 
-    /** Server: a client running this mod said hello; returns the server side's version. */
+    /** Server hears a mod client's hello, returns our version. */
     @LuaMethod(name = "SourceMove_serverHello", global = true)
     public static String serverHello(IsoPlayer player) {
         Server.hello(player);
         return Server.VERSION;
     }
 
-    /** Server: a client's state report (height, vertical speed, events), for the anti-cheat. */
+    /** Server gets a client's state report, for the anti-cheat. */
     @LuaMethod(name = "SourceMove_serverState", global = true)
     public static void serverState(IsoPlayer player, String d) {
         Server.report(player, d);
@@ -92,14 +94,19 @@ public class LuaApi {
         return Cfg.enabled;
     }
 
-    /** Horizontal speed (tiles/s) for the speed overlay. */
     @LuaMethod(name = "SourceMove_speed", global = true)
     public static double speed() {
-        return Mover.hudSpeed();
+        return Status.hudSpeed();
+    }
+
+    /** Collision overlay at (x, y). */
+    @LuaMethod(name = "SourceMove_drawWire", global = true)
+    public static void drawWire(double x, double y) {
+        Wire.draw(x, y);
     }
 
     @LuaMethod(name = "SourceMove_status", global = true)
     public static String status() {
-        return Mover.status();
+        return Status.status();
     }
 }

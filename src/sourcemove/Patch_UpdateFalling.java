@@ -3,7 +3,7 @@ package sourcemove;
 import me.zed_0xff.zombie_buddy.Patch;
 import zombie.characters.IsoGameCharacter;
 
-/** The engine's gravity integrator: clamp jumps at ceilings, read ground state, suppress fall states. */
+/** Gravity, for ceilings, ground state and no fall states. */
 @Patch(className = "zombie.characters.IsoGameCharacter", methodName = "updateFalling")
 public class Patch_UpdateFalling {
     @Patch.OnEnter

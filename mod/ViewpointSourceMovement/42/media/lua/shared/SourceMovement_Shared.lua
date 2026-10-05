@@ -1,9 +1,8 @@
--- Source Movement for Viewpoint: gameplay settings are Sandbox options (media/sandbox-options.txt, the same for
--- everyone in a world). The client and a multiplayer server both push them to the Java side with this.
+-- Pushes Sandbox gameplay settings to Java (client and server).
 
--- Java setting names read from SandboxVars.ViewpointSourceMovement (same names there).
+-- Same names in SandboxVars.ViewpointSourceMovement.
 local SANDBOX_BOOLS = {
-    "autohop", "trimp", "sounds", "windowJump", "windowCrash", "windowDamage", "fallKnockdown", "pulldown", "exertionWeight", "tiredJumps", "heavyJumps", "exhaustedNoJump",
+    "autohop", "trimp", "sounds", "windowJump", "windowCrash", "windowDamage", "barbedWire", "fallKnockdown", "pulldown", "exertionWeight", "tiredJumps", "heavyJumps", "exhaustedNoJump",
 }
 local SANDBOX_NUMBERS = {
     "jumpBufferMs", "jumpHeight", "fenceFooting", "carRoofOffset", "windowCrashSpeed", "safeDrop", "zombieReach",
@@ -11,7 +10,7 @@ local SANDBOX_NUMBERS = {
     "mpSpeedLimit",
 }
 
---- @return boolean false if the Java side isn't loaded
+--- @return boolean false without the Java side
 function SourceMovement_pushSandbox()
     if not SourceMove_setBool or not SourceMove_setNumber then return false end
     local sv = SandboxVars and SandboxVars.ViewpointSourceMovement
@@ -23,7 +22,7 @@ function SourceMovement_pushSandbox()
         local v = tonumber(sv[key])
         if v then SourceMove_setNumber(key, v) end
     end
-    -- enum is 1-based: None, Reasonable, Vanilla
+    -- 1-based None, Reasonable, Vanilla
     SourceMove_setNumber("fallMode", (tonumber(sv.fallMode) or 2) - 1)
     return true
 end

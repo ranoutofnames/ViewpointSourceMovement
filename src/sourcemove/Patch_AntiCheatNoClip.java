@@ -4,7 +4,7 @@ import me.zed_0xff.zombie_buddy.Patch;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.packets.INetworkPacket;
 
-/** Server: let through fence, prop, window and roof crossings a recent jump could make. */
+/** Server allows crossings a recent jump could make. */
 @Patch(className = "zombie.network.anticheats.AntiCheatNoClip", methodName = "validate")
 public class Patch_AntiCheatNoClip {
     @Patch.OnExit

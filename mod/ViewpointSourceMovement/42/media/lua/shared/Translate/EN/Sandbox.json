@@ -14,6 +14,8 @@
     "Sandbox_SourceMove_windowCrashSpeed": "Window crash speed (tiles per second)",
     "Sandbox_SourceMove_windowCrashSpeed_tooltip": "Sprinting = about 5",
     "Sandbox_SourceMove_windowDamage": "Window damage",
+    "Sandbox_SourceMove_barbedWire": "Barbed wire hurts",
+    "Sandbox_SourceMove_barbedWire_tooltip": "Coming down on barbed wire = cut and trip",
     "Sandbox_SourceMove_sounds": "Jumping and landing sounds",
     "Sandbox_SourceMove_fallMode": "Fall damage",
     "Sandbox_SourceMove_fallMode_option1": "None",

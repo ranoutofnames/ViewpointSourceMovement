@@ -17,37 +17,29 @@ import zombie.network.GameClient;
 import zombie.vehicles.BaseVehicle;
 import zombie.vehicles.VehicleManager;
 
-/**
- * Multiplayer, client side: other players who use Source movement, as seen here. Their positions arrive with
- * whole-level Z and are walked toward at animation speed, so without this they'd never leave the ground and
- * would lag and teleport when bhopping. From their state reports ({@link Net}) we:
- *   - show their real height: set at the end of their update (so rendering and zombie attack checks see it)
- *     and put back at the start of the next one, so vanilla's own simulation of them never sees it;
- *   - move them straight to where the network says they are, at whatever speed that takes;
- *   - play their leap animation, landing sounds, and no footsteps while they're in the air.
- */
+/** MP client. Other mod users shown at their reported height and position, with their leap and landing sounds. */
 public final class Remote {
     private Remote() {}
 
-    /** Reports older than this are stale (the sender stopped being active or left). */
+    /** Reports older than this are stale. */
     private static final long STALE_NS = 2_500_000_000L;
-    /** Extrapolate an arc at most this long past the last report (s). */
+    /** Longest arc extrapolated past the last report (s). */
     private static final double MAX_ARC = 0.6;
-    /** Don't show them further than this (levels) from where vanilla has them: something's out of sync. */
+    /** Max drift from vanilla's position (levels) before we stop trusting reports. */
     private static final double MAX_GAP = 2.5;
-    /** Hold a landing height this long while the whole-level position update arrives. */
+    /** Hold a landing height until the position update catches up. */
     private static final long LAND_HOLD_NS = 500_000_000L;
-    /** Position smoothing time constant (s). */
+    /** Position smoothing (s). */
     private static final double SMOOTH = 0.08;
     private static final String[] LAND_EVENTS = {null, "LandLight", "LandHeavy", "LandHeavyFromFall"};
 
     static final class St {
         float z, vz;
         int flags;
-        /** Riding a car roof: its vehicle ID and our spot in its frame (x forward along its yaw). */
+        /** Car they ride and their spot on it (x forward). */
         short vehicle;
         float localX, localY;
-        /** When their last landing report arrived: their height is held there until the position catches up. */
+        /** When they last landed. */
         long landedAt;
         boolean jumpAlt;
         long at;
@@ -93,7 +85,7 @@ public final class Remote {
                 p.getEmitter().playSoundImpl(LAND_EVENTS[land], p);
             }
         } catch (RuntimeException e) {
-            // malformed report: ignore
+            // malformed, ignore
         }
         if (states.size() > 64) prune();
     }
@@ -112,19 +104,19 @@ public final class Remote {
         return st != null && System.nanoTime() - st.at < STALE_NS ? st : null;
     }
 
-    /** Using Source movement right now (for zombie reach). */
+    /** Using Source movement now. */
     static boolean active(IsoGameCharacter c) {
         St st = fresh(c);
         return st != null && (st.flags & Net.F_ACTIVE) != 0;
     }
 
-    /** In the air from a jump or drop (no footsteps). */
+    /** In the air (no footsteps). */
     static boolean airborne(IsoGameCharacter c) {
         St st = fresh(c);
         return st != null && (st.flags & Net.F_AIR) != 0;
     }
 
-    /** IsoPlayer.update enter: undo last frame's display height so vanilla simulates the real one. */
+    /** update enter, put back the real height for vanilla's simulation. */
     public static void onUpdateEnter(IsoPlayer p) {
         if (!GameClient.client || p.isLocalPlayer()) return;
         St st = states.get(p);
@@ -138,24 +130,29 @@ public final class Remote {
         st.startY = p.getY();
     }
 
-    /** Using Source movement and its fall rules: their falls (and landings) are theirs, not ours to animate. */
+    /** Their falls are theirs to animate. */
     static boolean fallsOverridden(IsoGameCharacter c) {
         return Cfg.fallMode != Cfg.FALL_VANILLA && active(c);
     }
 
-    /** IsoPlayer.update exit: position and display height from the reports. */
+    /** update exit, position and height from reports. */
     public static void onUpdateExit(IsoPlayer p) {
         St st = fresh(p);
         if (st == null || (st.flags & Net.F_ACTIVE) == 0 || p.getVehicle() != null || p.isDead()) return;
         if (Cfg.fallMode != Cfg.FALL_VANILLA) {
-            // Our copy of them falls with vanilla gravity between whole-level position updates: no falling state.
             p.setbFalling(false);
             p.setFallTime(0);
         }
         State s = p.getCurrentState();
         if (s == ClimbOverFenceState.instance() || s == ClimbThroughWindowState.instance() || s == ClimbOverWallState.instance()) return;
+        long now = System.nanoTime();
+        // Grid collision off a roof edge would undo the easing, vanilla turns it back on next frame.
+        if ((st.flags & Net.F_AIR) != 0 || now - st.landedAt < LAND_HOLD_NS) {
+            p.setCollidable(false);
+            p.setHasObstacleOnPath(false);
+        }
 
-        // On a car roof: stand where they are on the car as this client sees it (exact, no network lag).
+        // On a car, where they stand on it as we see it.
         BaseVehicle car = (st.flags & Net.F_RIDE) != 0 && VehicleManager.instance != null
                 ? VehicleManager.instance.getVehicleByID(st.vehicle) : null;
         NetworkPlayerAI ai = p.getNetworkCharacterAI();
@@ -166,7 +163,7 @@ public final class Remote {
             float roof = Rides.roofZ(car);
             if (!Float.isNaN(roof)) st.z = roof;
         } else if (ai != null) {
-            // Horizontal: ease toward the network's (already extrapolated) target instead of walking there.
+            // Ease to the network target instead of walking there.
             double tx = ai.targetX - st.startX, ty = ai.targetY - st.startY;
             double dist = Math.hypot(tx, ty);
             if (dist > 0.01 && dist < 6) {
@@ -177,12 +174,9 @@ public final class Remote {
             }
         }
 
-        // Vertical: in the air, follow the reported arc, across levels too (a drop off a roof); standing on
-        // something, never below where vanilla has them; just landed, hold the landing height until the
-        // whole-level position update catches up.
+        // Airborne follows the reported arc, standing never goes below vanilla, just landed holds.
         float sim = p.getZ();
         double z = st.z;
-        long now = System.nanoTime();
         if ((st.flags & Net.F_AIR) != 0) {
             double t = Math.min(MAX_ARC, (now - st.at) / 1e9);
             z = st.z + st.vz * t - 0.5 * FallingConstants.IsoFallAcceleration * t * t;

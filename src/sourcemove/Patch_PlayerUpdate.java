@@ -3,7 +3,7 @@ package sourcemove;
 import me.zed_0xff.zombie_buddy.Patch;
 import zombie.characters.IsoPlayer;
 
-/** Client: other players using Source movement get their real height and speed for the rest of the frame. */
+/** Client shows other mod users at their real height and speed. */
 @Patch(className = "zombie.characters.IsoPlayer", methodName = "update")
 public class Patch_PlayerUpdate {
     @Patch.OnEnter

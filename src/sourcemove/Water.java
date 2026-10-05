@@ -4,38 +4,29 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.SpriteDetails.IsoFlagType;
 
-/**
- * Open water (ponds, puddle pools, rivers): the engine makes water tiles solidtrans, so they block like a wall.
- * With this mod you can jump over them and onto props standing in them, but not land in the water itself:
- * that puts you back on the nearest dry land. Docks and bridges over water have a real floor, and
- * IsoGridSquare clears solidtrans for those. The engine's own square-to-square rule
- * (IsoGridSquare.CalculateCollide) blocks any move where either square is open water, in or out.
- */
+/** Open water. Jump over it and onto props in it; landing in it puts you back on shore. */
 final class Water {
     private Water() {}
 
-    /** How far (tiles) to look for dry land around a water landing. */
+    /** Search radius for dry land (tiles). */
     private static final int SEARCH = 8;
-    /** Keep the rescue spot this far inside the land square's edges (tiles). */
+    /** Inset from the land square's edge (tiles). */
     private static final double INSET = 0.3;
 
-    /** Feet this far above the water's level count as out of the water (levels). */
+    /** Feet this far above water are out of it (levels). */
     static final double SURFACE = 0.05;
 
-    /** A water tile with nothing walkable over it (it may still hold a prop: a fountain, a fixture). */
+    /** Water with no floor over it. */
     static boolean open(IsoGridSquare sq) {
         return sq != null && sq.has(IsoFlagType.water) && !sq.hasFloorOverWater();
     }
 
-    /** Somewhere you can stand: a floor, no water, nothing solid (vanilla's canPlaceCorpseOnSquare test). */
+    /** Standable means floor, no water, nothing solid. */
     static boolean land(IsoGridSquare sq) {
         return sq != null && sq.TreatAsSolidFloor() && !sq.has(IsoFlagType.water) && !sq.isSolid() && !sq.isSolidTrans();
     }
 
-    /**
-     * The closest standable point to (x,y) at level z on dry land within {@value #SEARCH} tiles, as {x, y},
-     * or null if there is none.
-     */
+    /** Closest dry-land point within SEARCH, or null. */
     static double[] nearestLand(IsoCell cell, double x, double y, int z) {
         int cx = (int) Math.floor(x), cy = (int) Math.floor(y);
         double best = Double.POSITIVE_INFINITY;

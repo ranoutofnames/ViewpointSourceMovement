@@ -1,7 +1,4 @@
--- Source Movement for Viewpoint, multiplayer server side: answer clients' hello, relay their jump reports
--- (height, vertical speed, jump and landing events) to nearby players, and, when this server runs
--- ZombieBuddy with the mod's Java side, feed them to its anti-cheat patches. The relay works without Java,
--- e.g. on a hosted (co-op) game, whose server has the anti-cheat off anyway.
+-- MP server. Answers hellos, relays jump reports to nearby players, feeds the anti-cheat when Java is loaded.
 if not isServer() then return end
 
 local MOD = "SourceMovement"

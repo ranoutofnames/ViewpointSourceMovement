@@ -1,14 +1,9 @@
 package sourcemove;
 
-/**
- * Quake/Source player movement math (PM_Friction, PM_Accelerate, PM_AirAccelerate).
- * Pure functions over a 2D velocity so they can be unit-tested without the game.
- * Units are whatever the caller uses consistently (here: tiles and seconds).
- */
+/** Quake/Source movement math, pure so it can be tested without the game. */
 public final class Physics {
     private Physics() {}
 
-    /** Horizontal velocity, mutated in place. */
     public static final class Vel {
         public double x, y;
 
@@ -17,7 +12,7 @@ public final class Physics {
         }
     }
 
-    /** Ground friction. {@code stopSpeed} is the floor used for the control term so slow motion stops crisply. */
+    /** Ground friction; stopSpeed makes slow motion stop crisply. */
     public static void friction(Vel v, double friction, double stopSpeed, double dt) {
         double speed = v.speed();
         if (speed < 1e-6) {
@@ -31,7 +26,6 @@ public final class Physics {
         v.y *= scale;
     }
 
-    /** Ground acceleration toward a unit wish direction. */
     public static void accelerate(Vel v, double wishX, double wishY, double wishSpeed, double accel, double dt) {
         double addSpeed = wishSpeed - (v.x * wishX + v.y * wishY);
         if (addSpeed <= 0) return;
@@ -40,10 +34,7 @@ public final class Physics {
         v.y += accelSpeed * wishY;
     }
 
-    /**
-     * Air acceleration. Only the projected speed is capped (the classic 30 u/s), while the
-     * acceleration amount still scales with the full wish speed. This is what makes strafe-jumping gain speed.
-     */
+    /** Air acceleration. Only the projected speed is capped, which is what lets strafing gain speed. */
     public static void airAccelerate(Vel v, double wishX, double wishY, double wishSpeed, double accel, double dt, double airCap) {
         double capped = Math.min(wishSpeed, airCap);
         double addSpeed = capped - (v.x * wishX + v.y * wishY);
@@ -53,12 +44,7 @@ public final class Physics {
         v.y += accelSpeed * wishY;
     }
 
-    /**
-     * Source's ClipVelocity (overbounce 1) against a ramp that rises along the unit direction (ux, uy) at
-     * {@code angle} radians from horizontal: velocity into the ramp is removed, so moving up it turns part of
-     * your speed upward. {@code v}'s horizontal part changes in place; returns the new vertical speed ({@code vz},
-     * same units, up positive). Moving away from the ramp (or jumping steeper than it) leaves both unchanged.
-     */
+    /** Source ClipVelocity against a ramp rising along (ux, uy); returns the new vertical speed. */
     public static double clipRamp(Vel v, double vz, double ux, double uy, double angle) {
         double s = Math.sin(angle), c = Math.cos(angle);
         double nx = -ux * s, ny = -uy * s, nz = c;
@@ -69,20 +55,16 @@ public final class Physics {
         return vz - backoff * nz;
     }
 
-    /** Initial upward speed that reaches {@code apex} under constant gravity {@code g}. */
     public static double jumpSpeed(double apex, double g) {
         return Math.sqrt(2 * g * Math.max(0, apex));
     }
 
-    /** One step of {@link #gridWalk}: from square (ax,ay) to the adjacent (bx,by); false refuses it. */
+    /** One step of gridWalk; false refuses it. */
     public interface Step {
         boolean ok(int ax, int ay, int bx, int by);
     }
 
-    /**
-     * Visit the squares a straight segment crosses (Amanatides-Woo), one step at a time; through an exact
-     * corner the step is diagonal. False if a step is refused or it takes more than {@code maxSteps}.
-     */
+    /** Squares a segment crosses (Amanatides-Woo), diagonal through exact corners; false if refused or too long. */
     public static boolean gridWalk(double x0, double y0, double x1, double y1, int maxSteps, Step step) {
         int x = (int) Math.floor(x0), y = (int) Math.floor(y0);
         int ex = (int) Math.floor(x1), ey = (int) Math.floor(y1);
@@ -114,13 +96,14 @@ public final class Physics {
         return true;
     }
 
-    /**
-     * Landing impact speed after forgiving {@code safeDrop} of fall height: the speed of a fall that is
-     * {@code safeDrop} shorter. Used for "reasonable" fall damage.
-     */
+    /** Impact speed of a fall safeDrop shorter. */
     public static double forgiveDrop(double impactSpeed, double g, double safeDrop) {
         if (impactSpeed <= 0) return impactSpeed;
         double height = impactSpeed * impactSpeed / (2 * g) - safeDrop;
         return height <= 0 ? 0 : Math.sqrt(2 * g * height);
+    }
+
+    public static double clamp01(double v) {
+        return Math.max(0, Math.min(1, v));
     }
 }

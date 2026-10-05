@@ -90,6 +90,14 @@ option ViewpointSourceMovement.windowDamage
     translation = SourceMove_windowDamage,
 }
 
+option ViewpointSourceMovement.barbedWire
+{
+    type = boolean,
+    default = true,
+    page = ViewpointSourceMovement,
+    translation = SourceMove_barbedWire,
+}
+
 option ViewpointSourceMovement.sounds
 {
     type = boolean,

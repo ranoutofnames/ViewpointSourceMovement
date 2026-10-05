@@ -1,6 +1,6 @@
 package sourcemove;
 
-/** Run: java -cp build/classes;build/test sourcemove.PhysicsTest */
+/** Run with java -cp build/classes;build/test sourcemove.PhysicsTest */
 public final class PhysicsTest {
     private static int failures;
 
@@ -44,14 +44,14 @@ public final class PhysicsTest {
         check("friction stops within ~1 s", ticks < 70, ticks);
     }
 
-    /** Hold strafe while turning the view at the optimal rate: speed must keep rising (bhop/strafe-jump gain). */
+    /** Optimal strafing must keep gaining speed. */
     static void airStrafeGainsSpeed() {
         Physics.Vel v = new Physics.Vel();
         v.x = 3.4;
         double dt = 1.0 / 66, wish = 3.4, cap = 0.12 * 3.4;
         for (int i = 0; i < 66 * 3; i++) {
             double heading = Math.atan2(v.y, v.x);
-            // Wish direction a bit wider than the cap angle, so the projected speed sits under the cap (optimal-ish strafe).
+            // Just past the cap angle.
             double ang = heading + Math.acos(Math.min(1, 0.5 * cap / Math.max(v.speed(), 1e-6)));
             Physics.airAccelerate(v, Math.cos(ang), Math.sin(ang), wish, 100, dt, cap);
         }
@@ -68,7 +68,7 @@ public final class PhysicsTest {
 
     static void jumpApex() {
         double g = 5.0010414, v0 = Physics.jumpSpeed(0.35, g);
-        // Integrate like the engine's updateFalling at 60 FPS and record the peak.
+        // updateFalling at 60 FPS.
         double z = 0, v = -v0, dt = 1.0 / 60, peak = 0;
         for (int i = 0; i < 120; i++) {
             double dz = v * dt + 0.5 * g * dt * dt;
@@ -80,11 +80,7 @@ public final class PhysicsTest {
         check("jump apex ~0.35 levels", Math.abs(peak - 0.35) < 0.02, peak);
     }
 
-    /**
-     * Whole hop sequences with Mover's defaults (66 tick, friction 4, stopspeed 0.4*run, airaccel 100,
-     * air cap 0.12*run, run 3.4 tiles/s, 0.35-level jump = ~49 air ticks). Strafing is the optimal
-     * perpendicular wish direction (gain per tick = cap^2 / 2v).
-     */
+    /** Hop sequences at the default settings, with and without optimal strafing. */
     static void bhopSequences() {
         double perfectNoStrafe = hops(8, 10, 0, false);
         double heldNoStrafe = hops(8, 10, 1, false);
@@ -107,7 +103,7 @@ public final class PhysicsTest {
                 Physics.accelerate(v, v.x / v.speed(), v.y / v.speed(), run, 10, dt);
             }
             for (int i = 0; i < airTicks; i++) {
-                if (!strafe) continue; // holding W along velocity adds nothing, same as no input
+                if (!strafe) continue; // W along velocity adds nothing
                 double ang = Math.atan2(v.y, v.x) + Math.PI / 2;
                 Physics.airAccelerate(v, Math.cos(ang), Math.sin(ang), run, 100, dt, cap);
             }
@@ -116,7 +112,7 @@ public final class PhysicsTest {
         return v.speed();
     }
 
-    /** Mirrors Ledges/Cfg: low fence 0.40, tall fence 0.85, roof 1.0; jump 0.55; tired -8%/level. */
+    /** Ledges and Cfg values. */
     static void parkourChain() {
         double jump = 0.55, low = 0.40, tall = 0.85, roof = 1.0;
         check("ground -> low fence", 0 + jump > low + 0.1, jump);
@@ -129,7 +125,7 @@ public final class PhysicsTest {
         check("Tired level 3 can't make low -> tall", low + tired3 < tall, low + tired3);
     }
 
-    /** Vanilla: damage starts at 0.5 levels of fall; reasonable mode forgives 1.0 more by default. */
+    /** Vanilla hurts from 0.5 levels; REASONABLE forgives 1.0 more. */
     static void reasonableFalls() {
         double g = 5.0010414, safe = 1.0;
         double noDamage = Math.sqrt(2 * g * 0.5);
@@ -183,7 +179,7 @@ public final class PhysicsTest {
         v.x = 10;
         vz = Physics.clipRamp(v, 20, 1, 0, Math.toRadians(30));
         check("jumping steeper than the ramp: unchanged", vz == 20 && v.x == 10, vz);
-        // PZ stairs: a level (2.449 m) over three 1 m tiles, ~39 deg. Bhop speed 10 tiles/s:
+        // PZ stairs rise a level (2.449 m) over three 1 m tiles, ~39 deg.
         double stairs = Math.atan(2.44949 / 3);
         v.x = 10;
         vz = Physics.clipRamp(v, 0, 1, 0, stairs) / 2.44949;

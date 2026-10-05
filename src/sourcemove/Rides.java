@@ -10,11 +10,7 @@ import zombie.iso.IsoChunkMap;
 import zombie.scripting.objects.VehicleScript;
 import zombie.vehicles.BaseVehicle;
 
-/**
- * Vehicle roofs as surfaces. Uses the same chassis box the engine uses for character collision
- * (BaseVehicle.testCollisionWithCharacter): local box centered at centerOfMassOffset with size extents,
- * both already scaled by the model scale. Physics units are tiles horizontally and 2.449 per Z-level.
- */
+/** Car roofs as surfaces, using the engine's chassis box for character collision. */
 final class Rides {
     private Rides() {}
 
@@ -23,11 +19,7 @@ final class Rides {
     private static final Vector3f tmp = new Vector3f();
     private static final ArrayList<BaseVehicle> near = new ArrayList<>();
 
-    /**
-     * Cars whose center is within {@link #SEARCH} tiles of (x,y). Looks only in the chunks around (each
-     * chunk lists the cars on it, as IsoGridSquare.getVehicleContainer uses), not at every loaded car.
-     * The list is reused: don't hold on to it across calls.
-     */
+    /** Cars within SEARCH of (x, y), from nearby chunks; the list is reused. */
     static ArrayList<BaseVehicle> nearby(IsoCell cell, float x, float y) {
         near.clear();
         int size = IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
@@ -46,17 +38,17 @@ final class Rides {
         return near;
     }
 
-    /** Absolute Z (levels) of the vehicle's roof, or NaN if its physics transform isn't live. */
+    /** Roof Z (levels), NaN if the physics transform isn't live. */
     static float roofZ(BaseVehicle v) {
         VehicleScript s = v.getScript();
         if (s == null) return Float.NaN;
         float originLevels = v.jniTransform.origin.y / LEVEL_METERS;
-        if (Math.abs(originLevels - v.getZ()) > 1f) return Float.NaN; // transform not live (no physics nearby)
+        if (Math.abs(originLevels - v.getZ()) > 1f) return Float.NaN;
         Vector3f ext = s.getExtents(), com = s.getCenterOfMassOffset();
         return (v.jniTransform.origin.y + com.y + ext.y / 2f) / LEVEL_METERS + (float) Cfg.carRoofOffset;
     }
 
-    /** Is (x,y) over the vehicle's chassis box, grown by {@code margin} tiles? */
+    /** (x, y) over the chassis box grown by margin. */
     static boolean over(BaseVehicle v, float x, float y, float margin) {
         VehicleScript s = v.getScript();
         if (s == null) return false;
@@ -66,7 +58,7 @@ final class Rides {
                 && local.z > com.z - ext.z / 2f - margin && local.z < com.z + ext.z / 2f + margin;
     }
 
-    /** Highest roof under (x,y) that your feet at {@code z} are on or above (within stepUp). */
+    /** Highest roof under (x, y) your feet are on or above. */
     static BaseVehicle roofUnder(IsoCell cell, float x, float y, double z, float margin, double stepUp, float[] outRoof) {
         BaseVehicle best = null;
         float bestRoof = -1;
@@ -83,17 +75,14 @@ final class Rides {
         return best;
     }
 
-    /**
-     * For a move to (x,y): -1 if a vehicle there is in your way, 1 if it overlaps vehicles and your feet
-     * are above every roof (the vehicle is under you), 0 if it overlaps none.
-     */
+    /** Move to (x, y). -1 a car blocks, 1 you're above every car there, 0 none. */
     static int vehiclesAt(IsoCell cell, float ox, float oy, float x, float y, double feet, float radius, double stepUp) {
         boolean any = false;
         ArrayList<BaseVehicle> cars = nearby(cell, x, y);
         for (int i = 0; i < cars.size(); i++) {
             BaseVehicle v = cars.get(i);
             if (!over(v, x, y, radius)) continue;
-            // Moving away from it (running off its roof): never in your way.
+            // Running off its roof never blocks.
             if (Math.hypot(x - v.getX(), y - v.getY()) > Math.hypot(ox - v.getX(), oy - v.getY()) + 1e-6) {
                 any = true;
                 continue;
@@ -105,14 +94,13 @@ final class Rides {
         return any ? 1 : 0;
     }
 
-    /** World-plane velocity (tiles/s) into {@code out}: physics x -> world x, physics z -> world y. */
+    /** World velocity (tiles/s), physics x -> x, z -> y. */
     static void velocity(BaseVehicle v, double[] out) {
         Vector3f lv = v.getLinearVelocity(tmp);
         out[0] = lv.x;
         out[1] = lv.z;
     }
 
-    /** Heading in the world plane (radians), for carrying a rider through turns. */
     static double yaw(BaseVehicle v) {
         Vector3f f = v.getForwardVector(tmp);
         return Math.atan2(f.z, f.x);
