@@ -1,8 +1,12 @@
 package sourcemove;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
+
+import org.joml.Matrix3f;
+import org.joml.Vector3f;
 
 import zombie.core.properties.PropertyContainer;
 import zombie.core.textures.Texture;
@@ -11,7 +15,9 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.sprite.IsoSpriteGrid;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.tileDepth.TileDepthTextureAssignmentManager;
 import zombie.tileDepth.TileGeometryFile;
@@ -25,7 +31,6 @@ final class Props {
     static final int MODE_OFF = 0, MODE_OUTDOOR = 1, MODE_ALL = 2;
     static final int MAT_CONCRETE = 2, MAT_WOOD = 7, MAT_CARPET = 8, MAT_METAL = 12;
 
-    private static final double LEVEL_METERS = 2.44949;
     /** Taller than this (levels) is a wall. */
     private static final float MAX_TOP = 0.9f;
     /** Lower than this is feet and base plates. */
@@ -77,6 +82,8 @@ final class Props {
         boolean ridgeAlongY;
         /** Two-tile tent half, the slope rises across the square to the shared edge. */
         boolean halfRamp;
+        /** Half tent, +1 or -1 toward the ridge across it, 0 unknown. */
+        int ridgeSide;
         /** Where the slope starts in from the outer edge (tiles). */
         float rampInset;
 
@@ -132,7 +139,7 @@ final class Props {
         return p.has(IsoFlagType.vegitation) || "Bush".equals(name) || "Hedge".equals(name);
     }
     /** Walk-through things that make poor footing. */
-    private static final String[] NOT_FLOORS = {"camping_02", "vegetation_", "fixtures_windows_curtains", "floors_", "fixtures_stairs", "damaged_objects"};
+    private static final String[] NOT_FLOORS = {"camping_02", "vegetation_", "fixtures_windows_curtains", "floors_", "fixtures_stairs"};
 
     /** Prop height from its geometry, an aliased tile's geometry, fixed values, its pixels, or IsLow; taller than MAX_TOP stays solid. */
     private static Prop build(IsoSprite s, int mode) {
@@ -158,7 +165,7 @@ final class Props {
         boolean emergencySign = "location_community_medical_01".equals(tileset)
                 && (index >= 84 && index <= 87 || index >= 92 && index <= 95);
         boolean named = tires || fountain || bench || emergencySign || "Bird Bath".equals(name) || override > 0;
-        if (!blocks && !named && (startsWithAny(tileset, NOT_FLOORS) || edgeOrAttached(p))) return null;
+        if (!blocks && !named && (startsWithAny(tileset, NOT_FLOORS) || edgeOrAttached(s, p))) return null;
 
         String label = fountain ? "Fountain" : override > 0 ? "Sign"
                 : name == null ? s.getName() : group == null ? name : group + " " + name;
@@ -167,11 +174,12 @@ final class Props {
         if (blocks && bigTent(tileset, p)) {
             // Ridge on the line between the two tiles, sides about 52 degrees.
             Prop tent = new Prop(new Shape[] {square(BIG_TENT_TOP)}, material, label);
-            tent.rampAngle = (float) Math.atan(BIG_TENT_TOP * LEVEL_METERS / (1 - BIG_TENT_INSET));
+            tent.rampAngle = (float) Math.atan(BIG_TENT_TOP * Physics.LEVEL_M / (1 - BIG_TENT_INSET));
             tent.halfRamp = true;
             tent.rampInset = BIG_TENT_INSET;
             String facing = p.get("Facing");
             tent.ridgeAlongY = "E".equals(facing) || "W".equals(facing);
+            tent.ridgeSide = ridgeSide(s, tent.ridgeAlongY);
             return tent;
         }
 
@@ -190,7 +198,7 @@ final class Props {
             if (!blocks && !named) return null; // walk-through with no shape, size unknown
             float fixed = fixedHeight(name);
             // The image misses stacked crates and slanted tops; the item surface catches those.
-            if (fixed <= 0 && blocks) fixed = Math.max(pixelHeight(s), surfaceHeight(p));
+            if (fixed <= 0 && blocks) fixed = Math.max(pixelHeight(s), p.getSurface() / PX_PER_LEVEL);
             if (fixed <= 0 && blocks) fixed = siblingPixelHeight(s, tileset, index, p);
             if (fixed <= 0 && (low || named)) fixed = LOW_PROP;
             if (fixed <= 0) return blocks ? BLOCKER : null;
@@ -204,7 +212,7 @@ final class Props {
         if (prop.entryTop < min || prop.entryTop > MAX_TOP) return blocks ? BLOCKER : null;
         // Small tents are an A-frame across the tile, about 64 degrees.
         if (smallTent(tileset, p)) {
-            prop.rampAngle = (float) Math.atan(prop.entryTop * LEVEL_METERS / 0.5);
+            prop.rampAngle = (float) Math.atan(prop.entryTop * Physics.LEVEL_M / 0.5);
             String facing = p.get("Facing");
             prop.ridgeAlongY = "E".equals(facing) || "W".equals(facing);
         }
@@ -218,14 +226,16 @@ final class Props {
             IsoFlagType.windowN, IsoFlagType.windowW, IsoFlagType.WindowN, IsoFlagType.WindowW,
             IsoFlagType.doorN, IsoFlagType.doorW, IsoFlagType.DoorWallN, IsoFlagType.DoorWallW,
             IsoFlagType.attachedN, IsoFlagType.attachedS, IsoFlagType.attachedE, IsoFlagType.attachedW,
-            IsoFlagType.attachedNW, IsoFlagType.attachedSE, IsoFlagType.attachedCeiling, IsoFlagType.attachedSurface};
-    private static final String[] STAIRS = {"stairsTN", "stairsMN", "stairsBN", "stairsTW", "stairsMW", "stairsBW"};
+            IsoFlagType.attachedNW, IsoFlagType.attachedSE, IsoFlagType.attachedCeiling, IsoFlagType.attachedSurface,
+            IsoFlagType.attachedFloor};
+    /** The tile loader turns these properties into the sprite's tile type. */
+    private static final EnumSet<IsoObjectType> STAIRS = EnumSet.of(IsoObjectType.stairsTN, IsoObjectType.stairsMN,
+            IsoObjectType.stairsBN, IsoObjectType.stairsTW, IsoObjectType.stairsMW, IsoObjectType.stairsBW);
 
-    /** Edge objects (Ledges), wall-mounted and tabletop items, and stairs aren't ground props. */
-    private static boolean edgeOrAttached(PropertyContainer p) {
+    /** Edge objects (Ledges), wall-mounted, tabletop and floor clutter, and stairs aren't ground props. */
+    private static boolean edgeOrAttached(IsoSprite s, PropertyContainer p) {
         for (IsoFlagType f : EDGE_FLAGS) if (p.has(f)) return true;
-        for (String st : STAIRS) if (p.has(st)) return true;
-        return false;
+        return STAIRS.contains(s.getTileType());
     }
 
     /** Measured tops where the geometry is a placeholder (St. Peregrin's sign letters). */
@@ -262,19 +272,24 @@ final class Props {
         return px > 0 ? px / PX_PER_LEVEL : 0;
     }
 
-    /** The tile's item surface (levels), 0 if none. */
-    private static float surfaceHeight(PropertyContainer p) {
-        String v = p.get("Surface");
-        if (v == null) return 0;
-        try {
-            return Integer.parseInt(v.trim()) / PX_PER_LEVEL;
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
     /** Tallest sibling tile of a multi-tile object, for tiles with no image. */
     private static float siblingPixelHeight(IsoSprite s, String tileset, int index, PropertyContainer p) {
+        IsoSpriteGrid grid = s.getSpriteGrid();
+        if (grid != null) {
+            // Same level only, a part upstairs measures from its own floor.
+            int z = grid.getSpriteGridPosZ(s);
+            float best = 0;
+            for (int x = 0; x < grid.getWidth(); x++) {
+                for (int y = 0; y < grid.getHeight(); y++) {
+                    IsoSprite sib = grid.getSprite(x, y, z);
+                    if (sib == null || sib == s) continue;
+                    float h = pixelHeight(sib);
+                    if (h <= MAX_TOP) best = Math.max(best, h); // skip tall slices like a tent flap
+                }
+            }
+            return best;
+        }
+        // No grid, guess the group from nearby indices.
         String name = p.get("CustomName");
         if (name == null) return 0;
         String group = p.get("GroupName"), facing = p.get("Facing");
@@ -360,31 +375,37 @@ final class Props {
         return s;
     }
 
+    /** A box tilted more than about 2 degrees isn't a surface. */
+    private static final float UPRIGHT = 0.9995f;
+
     private static Shape[] geometry(String tileset, int index) {
         if (tileset == null || index < 0) return new Shape[0];
         ArrayList<TileGeometryFile.Geometry> list =
                 TileGeometryManager.getInstance().getGeometry("game", tileset, index % 8, index / 8);
         if (list == null) return new Shape[0];
         ArrayList<Shape> out = new ArrayList<>();
+        Matrix3f m = new Matrix3f();
+        Vector3f mid = new Vector3f();
         for (TileGeometryFile.Geometry g : list) {
             if (g.isBox()) {
                 TileGeometryFile.Box b = g.asBox();
-                if (Math.abs(b.rotate.x) > 1 || Math.abs(b.rotate.z) > 1) continue;
-                float top = (float) ((b.translate.y + b.max.y) / LEVEL_METERS);
+                // XYZ Euler as the game draws it, (180, a, 180) is a yaw of 180 - a.
+                m.rotationXYZ((float) Math.toRadians(b.rotate.x), (float) Math.toRadians(b.rotate.y), (float) Math.toRadians(b.rotate.z));
+                if (Math.abs(m.m11()) < UPRIGHT) continue;
+                m.transform(mid.set(b.min).add(b.max).mul(0.5f));
+                float cy = b.translate.y + mid.y, hy = Math.abs(m.m11()) * (b.max.y - b.min.y) / 2;
+                float top = (float) ((cy + hy) / Physics.LEVEL_M);
                 if (top < MIN_FLOOR) continue;
-                double yaw = Math.toRadians(b.rotate.y);
-                float c = (float) Math.cos(yaw), sn = (float) Math.sin(yaw);
-                float mx = (b.min.x + b.max.x) / 2, mz = (b.min.z + b.max.z) / 2;
                 Shape s = new Shape();
-                // JOML rotateY
-                s.cx = b.translate.x + mx * c + mz * sn;
-                s.cy = b.translate.z - mx * sn + mz * c;
+                s.cx = b.translate.x + mid.x;
+                s.cy = b.translate.z + mid.z;
                 s.hx = (b.max.x - b.min.x) / 2;
                 s.hy = (b.max.z - b.min.z) / 2;
-                s.cos = c;
-                s.sin = sn;
+                // The box's x axis on the ground.
+                s.cos = m.m00();
+                s.sin = -m.m02();
                 s.top = top;
-                s.bottom = (float) ((b.translate.y + b.min.y) / LEVEL_METERS);
+                s.bottom = (float) ((cy - hy) / Physics.LEVEL_M);
                 out.add(s);
             } else if (g.isCylinder()) {
                 TileGeometryFile.Cylinder cy = g.asCylinder();
@@ -392,11 +413,11 @@ final class Props {
                 boolean upright = (Math.abs(rx - 270) < 1 || Math.abs(rx - 90) < 1)
                         && Math.abs(cy.rotate.y) < 1 && Math.abs(cy.rotate.z) < 1;
                 if (!upright) continue;
-                float top = (float) ((cy.translate.y + cy.height / 2) / LEVEL_METERS);
+                float top = (float) ((cy.translate.y + cy.height / 2) / Physics.LEVEL_M);
                 if (top < MIN_FLOOR) continue;
                 Shape s = new Shape();
                 s.round = true;
-                s.bottom = (float) ((cy.translate.y - cy.height / 2) / LEVEL_METERS);
+                s.bottom = (float) ((cy.translate.y - cy.height / 2) / Physics.LEVEL_M);
                 s.cx = cy.translate.x;
                 s.cy = cy.translate.z;
                 s.r = Math.max(cy.radius1, cy.radius2);
@@ -494,6 +515,7 @@ final class Props {
 
     /** The prop topUnder found. */
     static Prop lastProp;
+    static IsoObject lastObject;
     static int lastPropX, lastPropY;
     /** How far below a ramp's surface you can be and still be put on it. */
     private static final double RAMP_STEP = 0.45;
@@ -504,30 +526,33 @@ final class Props {
     static double rampHeightAt(IsoCell cell, Prop p, int gx, int gy, int z, double x, double y) {
         double u = Physics.clamp01(p.ridgeAlongY ? x - gx : y - gy); // across the ridge
         if (!p.halfRamp) return p.entryTop * Math.max(0, 1 - Math.abs(u - 0.5) / 0.5);
-        int side = ridgeSide(cell, p, gx, gy, z);
-        if (side == 0) return p.entryTop; // unknown half, flat
-        double d = side > 0 ? u : 1 - u; // from the outer edge
+        if (p.ridgeSide == 0) return p.entryTop; // unknown half, flat
+        double d = p.ridgeSide > 0 ? u : 1 - u; // from the outer edge
         return p.entryTop * Physics.clamp01((d - p.rampInset) / (1 - p.rampInset));
     }
 
     /** +1 or -1 uphill across the ridge, 0 on it. */
     static int uphill(IsoCell cell, Prop p, int gx, int gy, int z, double x, double y) {
-        if (p.halfRamp) return ridgeSide(cell, p, gx, gy, z);
+        if (p.halfRamp) return p.ridgeSide;
         double u = p.ridgeAlongY ? x - gx : y - gy;
         return u < 0.48 ? 1 : u > 0.52 ? -1 : 0;
     }
 
-    /** Which side of the square the ridge is on. */
-    private static int ridgeSide(IsoCell cell, Prop p, int gx, int gy, int z) {
-        boolean hi = p.ridgeAlongY ? hasTent(cell.getGridSquare(gx + 1, gy, z)) : hasTent(cell.getGridSquare(gx, gy + 1, z));
-        boolean lo = p.ridgeAlongY ? hasTent(cell.getGridSquare(gx - 1, gy, z)) : hasTent(cell.getGridSquare(gx, gy - 1, z));
-        return hi == lo ? 0 : hi ? 1 : -1;
+    /** Which side of a half tent's square the ridge is on, from its column in the 2-wide sprite grid. */
+    private static int ridgeSide(IsoSprite s, boolean alongY) {
+        IsoSpriteGrid grid = s.getSpriteGrid();
+        if (grid == null) return 0;
+        int across = alongY ? grid.getWidth() : grid.getHeight();
+        int pos = alongY ? grid.getSpriteGridPosX(s) : grid.getSpriteGridPosY(s);
+        return across != 2 || pos < 0 ? 0 : pos == 0 ? 1 : -1;
     }
 
     /** Highest prop top under (x, y) your feet can be on, or -1. */
     static double topUnder(IsoCell cell, double x, double y, int level, double feet, double stepUp, double margin) {
         double best = -1;
         lastProp = null;
+        lastObject = null;
+        double thinMargin = Math.max(margin, Cfg.fenceFooting());
         int sx = (int) Math.floor(x), sy = (int) Math.floor(y);
         for (int gx = sx - 1; gx <= sx + 1; gx++) {
             for (int gy = sy - 1; gy <= sy + 1; gy++) {
@@ -546,6 +571,7 @@ final class Props {
                         if (top <= best || feet < top - RAMP_STEP) continue;
                         best = top;
                         lastProp = p;
+                        lastObject = o;
                         lastPropX = gx;
                         lastPropY = gy;
                         continue;
@@ -556,15 +582,17 @@ final class Props {
                             && squareDistance(gx, gy, x, y) <= margin) {
                         best = whole;
                         lastProp = p;
+                        lastObject = o;
                         lastPropX = gx;
                         lastPropY = gy;
                     }
                     for (Shape s : p.shapes) {
                         double top = level + s.top;
-                        double m = s.thin() ? Math.max(margin, Cfg.fenceFooting) : margin;
+                        double m = s.thin() ? thinMargin : margin;
                         if (top <= best || feet < top - stepUp || !s.contains(lx, ly, m)) continue;
                         best = top;
                         lastProp = p;
+                        lastObject = o;
                         lastPropX = gx;
                         lastPropY = gy;
                     }

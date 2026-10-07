@@ -6,6 +6,7 @@ import se.krka.kahlua.vm.KahluaTable;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoPlayer;
 import zombie.characters.NetworkPlayerAI;
+import zombie.core.raknet.UdpConnection;
 import zombie.network.GameClient;
 import zombie.network.fields.character.Prediction;
 import zombie.network.packets.character.PlayerPacket;
@@ -17,8 +18,8 @@ public final class Net {
 
     static final String MODULE = "SourceMovement";
 
-    /** The server answered, movement may run. */
-    public static volatile boolean serverReady;
+    /** The connection whose server answered. */
+    private static volatile UdpConnection readyOn;
     /** The server runs our Java side. */
     public static volatile boolean serverJava;
 
@@ -35,6 +36,12 @@ public final class Net {
         return GameClient.client;
     }
 
+    /** This server answered, movement may run. */
+    public static boolean serverReady() {
+        UdpConnection c = readyOn;
+        return c != null && c == GameClient.connection;
+    }
+
     /** Takeoff; anim = leap animation speed. */
     static void jumped(boolean anim, float speed) {
         events |= F_JUMP;
@@ -49,7 +56,7 @@ public final class Net {
 
     /** Per frame; on a car, our spot in its frame so others see us on it. */
     static void frame(IsoPlayer p, boolean active, boolean grounded, boolean raised, boolean anim, BaseVehicle ride) {
-        if (!GameClient.client || !serverReady || p == null) return;
+        if (!GameClient.client || !serverReady() || p == null) return;
         int flags = (active ? F_ACTIVE : 0) | (grounded ? 0 : F_AIR) | (anim ? F_ANIM : 0) | (raised ? F_RAISED : 0)
                 | (ride != null ? F_RIDE : 0);
         long now = System.nanoTime();
@@ -102,9 +109,13 @@ public final class Net {
     static void onServerCommand(String command, double id, String d) {
         switch (command) {
             case "welcome" -> {
-                serverReady = true;
+                // Respawns hello again on the same connection.
+                UdpConnection c = GameClient.connection;
                 serverJava = "java".equals(d);
-                Log.info("MP: server ready" + (serverJava ? "" : " (no Java side there: anti-cheat may pull you back)"));
+                if (c == null || c == readyOn) return;
+                Remote.clear();
+                readyOn = c;
+                Log.info("MP: server ready" + (serverJava ? "" : " (no Java side there, anti-cheat may pull you back)"));
             }
             case "s" -> Remote.onState((short) id, d);
             default -> { }
@@ -112,8 +123,10 @@ public final class Net {
     }
 
     static void reset() {
-        serverReady = serverJava = false;
+        readyOn = null;
+        serverJava = false;
         lastFlags = -1;
         events = 0;
+        Remote.clear();
     }
 }

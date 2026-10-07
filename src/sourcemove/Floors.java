@@ -5,6 +5,7 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.vehicles.BaseVehicle;
@@ -19,10 +20,16 @@ public final class Floors {
     private static final double PROP_FOOTING = 0.15;
     static int floorKind = FLOOR_GROUND;
     static Props.Prop floorProp;
+    /** The object that prop is. */
+    static IsoObject floorObject;
     static int floorPropX, floorPropY;
     /** The stairs of the rail you stand on. */
     static IsoGridSquare floorRail;
     static BaseVehicle floorVehicle, ride;
+    /** Top of the floor we found (levels), NaN on the ground. */
+    private static double floorTop = Double.NaN;
+    /** Inside self's updateFalling; only that query publishes the floor. */
+    private static boolean querying, queried;
     private static float rideX, rideY;
     private static double rideYaw;
     private static final float[] roofOut = new float[1];
@@ -75,29 +82,76 @@ public final class Floors {
         return !Float.isNaN(roof) && c.getZ() >= roof - Ledges.STEP_UP ? null : ret;
     }
 
-    private static Field footstepCharacter;
+    /** The footstep parameters' private character field. */
+    private static final ClassValue<Field> FOOTSTEP_CHARACTER = new ClassValue<>() {
+        @Override
+        protected Field computeValue(Class<?> type) {
+            try {
+                Field f = type.getDeclaredField("character");
+                f.setAccessible(true);
+                return f;
+            } catch (Throwable t) {
+                return null;
+            }
+        }
+    };
+
+    /** A footstep parameter of ours while we stand on something besides the ground. */
+    private static boolean offGround(Object param) {
+        if (floorKind == FLOOR_GROUND || Mover.self == null) return false;
+        Field f = FOOTSTEP_CHARACTER.get(param.getClass());
+        try {
+            return f != null && f.get(param) == Mover.self;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
 
     /** Footstep material, metal on cars, wood on fences, the prop's own on props. */
     public static float onFootstepMaterial(Object param, float ret) {
-        if (floorKind == FLOOR_GROUND || Mover.self == null) return ret;
-        try {
-            if (footstepCharacter == null) {
-                footstepCharacter = param.getClass().getDeclaredField("character");
-                footstepCharacter.setAccessible(true);
-            }
-            if (footstepCharacter.get(param) != Mover.self) return ret;
-        } catch (Throwable t) {
-            return ret;
-        }
+        if (!offGround(param)) return ret;
         if (floorKind == FLOOR_PROP && floorProp != null) return floorProp.material;
         return floorKind == FLOOR_VEHICLE ? 12f : 7f; // Metal / Wood
+    }
+
+    /** Second footstep layer, no ground puddles, glass or leaves up there. */
+    public static float onFootstepMaterial2(Object param, float ret) {
+        return offGround(param) ? 0f : ret; // None
+    }
+
+    static void beginQuery() {
+        querying = true;
+        queried = false;
+    }
+
+    /** No query this frame (climbing, seated) means no floor of ours. */
+    static void endQuery() {
+        querying = false;
+        if (!queried) clearFloor();
+    }
+
+    private static void clearFloor() {
+        floorKind = FLOOR_GROUND;
+        floorVehicle = null;
+        floorTop = Double.NaN;
+    }
+
+    /** Drops the floor, the car you ride and every object reference. */
+    static void reset() {
+        clearFloor();
+        ride = null;
+        floorProp = null;
+        floorObject = null;
+        floorRail = null;
     }
 
     /** getHeightAboveFloor exit. Fence tops, props and car roofs count as floor. */
     public static float onHeightAboveFloor(IsoGameCharacter c, float ret) {
         if (c != Mover.self) return ret;
-        floorKind = FLOOR_GROUND;
-        floorVehicle = null;
+        // Other callers (the shadow renderer) get the floor updateFalling found.
+        if (!querying) return Double.isNaN(floorTop) ? ret : Math.min(ret, (float) (c.getZ() - floorTop));
+        queried = true;
+        clearFloor();
         if (!Mover.baseActive) return ret;
         IsoCell cell = IsoWorld.instance != null ? IsoWorld.instance.currentCell : null;
         if (cell == null) return ret;
@@ -106,7 +160,7 @@ public final class Floors {
         int kind = FLOOR_GROUND;
         // No step-up while rising, or a jump would land mid-air.
         double stepUp = c.getLastFallSpeed() < 0 ? 0 : Ledges.STEP_UP;
-        double fence = Ledges.fenceTopUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), Cfg.fenceFooting, z + stepUp);
+        double fence = Ledges.fenceTopUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), Cfg.fenceFooting(), z + stepUp);
         IsoGridSquare rail = Ledges.lastRailStairs;
         if (fence >= 0 && z >= fence - stepUp) { // well below the top it's a wall, not a floor
             best = fence;
@@ -119,6 +173,7 @@ public final class Floors {
             kind = FLOOR_VEHICLE;
         }
         Props.Prop prop = null;
+        IsoObject object = null;
         if (Cfg.propMode != Props.MODE_OFF) {
             // Ramps catch you rising too, that landing is what trimps you.
             double top = Props.topUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), z, stepUp, PROP_FOOTING);
@@ -126,6 +181,7 @@ public final class Floors {
                 best = top;
                 kind = FLOOR_PROP;
                 prop = Props.lastProp;
+                object = Props.lastObject;
                 floorPropX = Props.lastPropX;
                 floorPropY = Props.lastPropY;
             }
@@ -134,6 +190,8 @@ public final class Floors {
         floorKind = kind;
         floorVehicle = kind == FLOOR_VEHICLE ? car : null;
         floorProp = prop;
+        floorObject = object;
+        floorTop = best;
         return (float) (z - best);
     }
 

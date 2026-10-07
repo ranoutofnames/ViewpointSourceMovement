@@ -49,14 +49,14 @@ public final class Landing {
     /** Skip DoLand entirely in FALL_NONE. */
     public static boolean skipLanding(IsoGameCharacter c) {
         // Other mod users land on their own client.
-        return Mover.modAir(c) && Cfg.fallMode == Cfg.FALL_NONE || Remote.fallsOverridden(c);
+        return Mover.modAir(c) && Cfg.fallMode() == Cfg.FALL_NONE || Remote.fallsOverridden(c);
     }
 
     /** REASONABLE forgives safeDrop of the fall, vanilla damage for the rest. */
     public static float landingSpeed(IsoGameCharacter c, float speed) {
-        if (!Mover.modAir(c) || Cfg.fallMode != Cfg.FALL_REASONABLE || speed <= 0) return speed;
+        if (!Mover.modAir(c) || Cfg.fallMode() != Cfg.FALL_REASONABLE || speed <= 0) return speed;
         inLanding = true;
-        return (float) Physics.forgiveDrop(speed, FallingConstants.IsoFallAcceleration, Cfg.safeDrop);
+        return (float) Physics.forgiveDrop(speed, FallingConstants.IsoFallAcceleration, Cfg.safeDrop());
     }
 
     public static void onLandingDone(IsoGameCharacter c) {
@@ -65,7 +65,7 @@ public final class Landing {
 
     /** Skip the landing knockdown when it's off. */
     public static boolean skipKnockdown(IsoGameCharacter c) {
-        return inLanding && c == Mover.self && !Cfg.fallKnockdown;
+        return inLanding && c == Mover.self && !Cfg.fallKnockdown();
     }
 
     /** PZ's landing events, surface picked by the emitter's footstep material. */
@@ -91,6 +91,6 @@ public final class Landing {
 
     /** No footsteps in the air. */
     public static boolean onAnimFootstep(IsoGameCharacter c) {
-        return Cfg.sounds && (c == Mover.self ? Mover.owned && !Mover.grounded : Remote.airborne(c));
+        return Cfg.sounds() && (c == Mover.self ? Mover.owned && !Mover.grounded : Remote.airborne(c));
     }
 }

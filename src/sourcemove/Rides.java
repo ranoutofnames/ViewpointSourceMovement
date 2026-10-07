@@ -14,7 +14,6 @@ import zombie.vehicles.BaseVehicle;
 final class Rides {
     private Rides() {}
 
-    private static final float LEVEL_METERS = 2.44949f;
     private static final float SEARCH = 6f;
     private static final Vector3f tmp = new Vector3f();
     private static final ArrayList<BaseVehicle> near = new ArrayList<>();
@@ -42,10 +41,10 @@ final class Rides {
     static float roofZ(BaseVehicle v) {
         VehicleScript s = v.getScript();
         if (s == null) return Float.NaN;
-        float originLevels = v.jniTransform.origin.y / LEVEL_METERS;
+        float originLevels = (float) (v.jniTransform.origin.y / Physics.LEVEL_M);
         if (Math.abs(originLevels - v.getZ()) > 1f) return Float.NaN;
         Vector3f ext = s.getExtents(), com = s.getCenterOfMassOffset();
-        return (v.jniTransform.origin.y + com.y + ext.y / 2f) / LEVEL_METERS + (float) Cfg.carRoofOffset;
+        return (float) ((v.jniTransform.origin.y + com.y + ext.y / 2f) / Physics.LEVEL_M + Cfg.carRoofOffset());
     }
 
     /** (x, y) over the chassis box grown by margin. */

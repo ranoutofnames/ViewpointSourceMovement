@@ -151,6 +151,14 @@ option ViewpointSourceMovement.pulldown
     translation = SourceMove_pulldown,
 }
 
+option ViewpointSourceMovement.propBreak
+{
+    type = boolean,
+    default = true,
+    page = ViewpointSourceMovement,
+    translation = SourceMove_propBreak,
+}
+
 option ViewpointSourceMovement.pulldownGroup
 {
     type = integer,

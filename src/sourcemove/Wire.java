@@ -107,20 +107,9 @@ final class Wire {
         IsoPlayer p = Mover.self;
         IsoCell cell = IsoWorld.instance != null ? IsoWorld.instance.currentCell : null;
         if (p == null || cell == null) return;
-        // Don't clobber the last-found statics the movement code reads.
-        Props.Prop savedProp = Props.lastProp;
-        int savedPx = Props.lastPropX, savedPy = Props.lastPropY;
-        IsoGridSquare savedRail = Ledges.lastRailStairs;
-        try {
-            topView(p, cell, x, y);
-            sideView(p, cell, x + MAP + GAP, y);
-            logView(x, y + MAP + 6);
-        } finally {
-            Props.lastProp = savedProp;
-            Props.lastPropX = savedPx;
-            Props.lastPropY = savedPy;
-            Ledges.lastRailStairs = savedRail;
-        }
+        topView(p, cell, x, y);
+        sideView(p, cell, x + MAP + GAP, y);
+        logView(x, y + MAP + 6);
     }
 
 
@@ -237,7 +226,7 @@ final class Wire {
             if (!Props.jumpable(prop) || prop.rampAngle > 0) continue;
             for (Props.Shape s : prop.shapes) {
                 float[] col = rel >= s.top - Ledges.STEP_UP ? GREEN : YELLOW;
-                double m = s.thin() ? Math.max(0.15, Cfg.fenceFooting) : 0.15;
+                double m = s.thin() ? Math.max(0.15, Cfg.fenceFooting()) : 0.15;
                 shape(gx + 0.5, gy + 0.5, s, 0, col, 1f);
                 shape(gx + 0.5, gy + 0.5, s, m, col, 0.3f);
                 wtext(gx + 0.5 + s.cx, gy + 0.5 + s.cy - 0.05, String.format("%.2f", s.top), col);
@@ -396,7 +385,7 @@ final class Wire {
         Physics.gridWalk(bx, by, ex, ey, 16, (ax, ay, cx2, cy2) -> {
             double t = crossingT(bx, by, dirX, dirY, ax, ay, cx2, cy2) - SIDE_BACK;
             double h = Ledges.crossingHeight(cell, level, ax, ay, cx2, cy2, ox + dirX * t, oy + dirY * t);
-            IsoObject window = ax == cx2 || ay == cy2 ? Windows.between(cell, level, ax, ay, cx2, cy2) : null;
+            IsoObject window = Windows.between(cell, level, ax, ay, cx2, cy2);
             if (window != null) {
                 sline(t, level, t, level + Windows.SILL, CYAN, 1f, 3);
                 sline(t, level + Windows.TOP, t, level + 1, CYAN, 1f, 3);
@@ -406,14 +395,12 @@ final class Wire {
             IsoGridSquare target = cell.getGridSquare(cx2, cy2, level);
             if (target == null) {
                 stext(t + 0.05, level + 0.95, "no square", PURPLE);
-            } else if (target.isSolid() || target.isSolidTrans()) {
-                double entry = Props.ramp(target) != null ? Double.NaN : Props.entryTop(target);
-                if (Props.ramp(target) == null) {
-                    double top = Double.isNaN(entry) ? Ledges.FULL : entry;
-                    sline(t + 0.03, level, t + 0.03, level + top, Double.isNaN(entry) ? RED : ORANGE, 0.8f, 1);
-                    stext(t + 0.06, level + Math.min(top, 1.2) + 0.08, Double.isNaN(entry) ? "solid" : String.format("in %.2f", entry),
-                            Double.isNaN(entry) ? RED : ORANGE);
-                }
+            } else if ((target.isSolid() || target.isSolidTrans()) && Props.ramp(target) == null) {
+                double entry = Props.entryTop(target);
+                double top = Double.isNaN(entry) ? Ledges.FULL : entry;
+                sline(t + 0.03, level, t + 0.03, level + top, Double.isNaN(entry) ? RED : ORANGE, 0.8f, 1);
+                stext(t + 0.06, level + Math.min(top, 1.2) + 0.08, Double.isNaN(entry) ? "solid" : String.format("in %.2f", entry),
+                        Double.isNaN(entry) ? RED : ORANGE);
             }
             return true;
         });

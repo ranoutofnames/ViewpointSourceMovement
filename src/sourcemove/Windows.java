@@ -17,7 +17,7 @@ final class Windows {
     /** Speed kept after crashing through. */
     private static final double CRASH_KEEP = 0.7;
 
-    private static IsoObject lastCrossed;
+    static IsoObject lastCrossed;
     private static long lastCrossedAt;
 
     /** You dive through, so feet may be this far below the sill. */
@@ -39,11 +39,8 @@ final class Windows {
 
     /** Window between two adjacent squares, or null. */
     static IsoObject between(IsoCell cell, int z, int ax, int ay, int bx, int by) {
-        if (by == ay - 1 && bx == ax) return on(cell.getGridSquare(ax, ay, z), true);
-        if (by == ay + 1 && bx == ax) return on(cell.getGridSquare(bx, by, z), true);
-        if (bx == ax - 1 && by == ay) return on(cell.getGridSquare(ax, ay, z), false);
-        if (bx == ax + 1 && by == ay) return on(cell.getGridSquare(bx, by, z), false);
-        return null;
+        if (ax != bx && ay != by) return null;
+        return on(Ledges.edgeOwner(cell, z, ax, ay, bx, by), ax == bx);
     }
 
     static boolean open(IsoObject o, IsoGameCharacter c) {
@@ -58,12 +55,12 @@ final class Windows {
 
     /** Can you pass now? Smashes a closed window at crash speed and rolls glass cuts. */
     static boolean pass(IsoGameCharacter c, IsoObject window, double feet, int level, double into, double speed, Physics.Vel vel) {
-        if (window == null || !Cfg.windowJump || !inOpening(feet, level)) return false;
+        if (window == null || !Cfg.windowJump() || !inOpening(feet, level)) return false;
         if (open(window, c)) {
             if (window instanceof IsoWindow w && w.isDestroyed() && !w.isGlassRemoved()) cut(c, window, 0.5);
             return true;
         }
-        if (!Cfg.windowCrash || !crashable(window) || into <= 0 || speed < Cfg.windowCrashSpeed) return false;
+        if (!Cfg.windowCrash() || !crashable(window) || into <= 0 || speed < Cfg.windowCrashSpeed()) return false;
         ((IsoWindow) window).smashWindow();
         vel.x *= CRASH_KEEP;
         vel.y *= CRASH_KEEP;
@@ -74,7 +71,7 @@ final class Windows {
 
     /** Glass cut, once per crossing. */
     private static void cut(IsoGameCharacter c, IsoObject window, double chance) {
-        if (!Cfg.windowDamage) return;
+        if (!Cfg.windowDamage()) return;
         long now = System.nanoTime();
         if (window == lastCrossed && now - lastCrossedAt < 1_500_000_000L) return;
         lastCrossed = window;

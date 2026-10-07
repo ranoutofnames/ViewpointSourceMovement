@@ -4,6 +4,9 @@ package sourcemove;
 public final class Physics {
     private Physics() {}
 
+    /** One level in meters. */
+    public static final double LEVEL_M = 2.44949;
+
     public static final class Vel {
         public double x, y;
 

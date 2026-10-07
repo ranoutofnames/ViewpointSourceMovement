@@ -12,18 +12,17 @@ import zombie.iso.IsoWorld;
 public final class Ramps {
     private Ramps() {}
 
-    private static final double LEVEL_M = 2.44949;
     /** Source NON_JUMP_VELOCITY, 140 u/s, in levels/s. */
-    private static final double NON_JUMP = 140 * 0.01905 / LEVEL_M;
+    private static final double NON_JUMP = 140 * 0.01905 / Physics.LEVEL_M;
     private static boolean snapGuard;
     private static float snapX, snapY, snapZ;
 
     /** Fastest legit takeoff (levels/s), for the server's check. */
     static double maxLaunchSpeed() {
-        double v0 = Physics.jumpSpeed(Math.max(0.1, Cfg.jumpHeight), FallingConstants.IsoFallAcceleration);
-        if (!Cfg.trimp) return v0;
-        double fastest = Cfg.mpSpeedLimit > 0 ? Cfg.mpSpeedLimit : 60;
-        return v0 + fastest / LEVEL_M;
+        double v0 = Physics.jumpSpeed(Math.max(0.1, Cfg.jumpHeight()), FallingConstants.IsoFallAcceleration);
+        if (!Cfg.trimp()) return v0;
+        double fastest = Cfg.mpSpeedLimit() > 0 ? Cfg.mpSpeedLimit() : 60;
+        return v0 + fastest / Physics.LEVEL_M;
     }
 
     /** doStairs / handleSlopedSurface snap Z to the surface every frame; keep your height mid-jump. */
@@ -76,7 +75,7 @@ public final class Ramps {
         if (g < 1e-3) return false;
         rampUx = gx / g;
         rampUy = gy / g;
-        rampAngle = Math.atan(g * LEVEL_M);
+        rampAngle = Math.atan(g * Physics.LEVEL_M);
         return true;
     }
 
@@ -96,7 +95,7 @@ public final class Ramps {
         Physics.Vel v = clipScratch;
         v.x = Mover.vel.x;
         v.y = Mover.vel.y;
-        return Physics.clipRamp(v, 0, rampUx, rampUy, rampAngle) / LEVEL_M;
+        return Physics.clipRamp(v, 0, rampUx, rampUy, rampAngle) / Physics.LEVEL_M;
     }
 
     private static final Physics.Vel clipScratch = new Physics.Vel();
@@ -104,7 +103,7 @@ public final class Ramps {
     /** Rise that keeps you on the slope at full speed (levels/s), 0 going down it; tent sides count as 45 degrees. */
     static double slopeLift() {
         double up = Mover.vel.x * rampUx + Mover.vel.y * rampUy;
-        return up > 0 ? up * Math.min(1, Math.tan(rampAngle)) / LEVEL_M : 0;
+        return up > 0 ? up * Math.min(1, Math.tan(rampAngle)) / Physics.LEVEL_M : 0;
     }
 
     /** Fast enough up a ramp to trimp; you keep your speed and fly off its top. */
@@ -120,7 +119,7 @@ public final class Ramps {
 
     /** Landing on a ramp while moving up it fast keeps you flying; slower, you just land. */
     static boolean rampBounce(IsoGameCharacter c) {
-        if (!Cfg.trimp || !groundRamp(c) || !trimps(c)) return false;
+        if (!Cfg.trimp() || !groundRamp(c) || !trimps(c)) return false;
         c.setLastFallSpeed((float) -slopeLift());
         Mover.jumpedThisAir = true;
         return true;
@@ -167,7 +166,7 @@ public final class Ramps {
         if (g < 1e-3) return;
         rampUx = gx / g;
         rampUy = gy / g;
-        rampAngle = Math.atan(g * LEVEL_M);
+        rampAngle = Math.atan(g * Physics.LEVEL_M);
         double vzNow = Mover.grounded ? 0 : -p.getLastFallSpeed();
         double vz = slopeLift();
         if (!trimps(p) || vz <= vzNow) return;

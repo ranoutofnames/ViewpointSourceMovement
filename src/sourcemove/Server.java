@@ -13,6 +13,8 @@ import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.Vector3;
+import zombie.network.GameServer;
+import zombie.network.ServerOptions;
 import zombie.network.anticheats.AntiCheatNoClip;
 import zombie.network.anticheats.AntiCheatSpeed;
 import zombie.network.fields.IMovable;
@@ -22,8 +24,6 @@ import zombie.network.packets.character.PlayerPacket;
 /** MP server. The anti-cheat can't see jumps, so crossings a reported jump could clear are let through. */
 public final class Server {
     private Server() {}
-
-    static final String VERSION = "1";
 
     /** How long a reported apex counts (ms). */
     private static final long EVIDENCE_MS = 2000;
@@ -45,15 +45,22 @@ public final class Server {
     private static final Map<IsoPlayer, State> players = new WeakHashMap<>();
     private static final Vector3 target = new Vector3();
 
+    /** Each respawn is a new IsoPlayer, so a report registers its sender too. */
+    private static State state(IsoPlayer p) {
+        return players.computeIfAbsent(p, k -> {
+            Log.info("MP: " + k.getUsername() + " uses Source movement");
+            return new State();
+        });
+    }
+
     static synchronized void hello(IsoPlayer p) {
-        if (p == null) return;
-        if (players.putIfAbsent(p, new State()) == null) Log.info("MP: " + p.getUsername() + " uses Source movement");
+        if (p != null) state(p);
     }
 
     /** State report; keeps the jump apex, clamped to the sandbox settings. */
     static synchronized void report(IsoPlayer p, String d) {
-        State st = players.get(p);
-        if (st == null || d == null) return;
+        if (p == null || d == null) return;
+        State st = state(p);
         String[] f = d.split(";");
         if (f.length < 2) return;
         double z, vz;
@@ -88,7 +95,6 @@ public final class Server {
             st.okAt = now;
             return null;
         }
-        if (!Cfg.enabled) return ret;
         Vector3 from = con.releventPos[idx];
         f.getPosition(target);
         try {
@@ -107,17 +113,39 @@ public final class Server {
 
     /** AntiCheatSpeed exit, mod users get the sandbox speed limit. */
     public static synchronized String speed(UdpConnection con, INetworkPacket packet, String ret) {
-        if (ret == null || !Cfg.enabled || !ret.startsWith("speed=")) return ret;
+        if (ret == null || !ret.startsWith("speed=")) return ret;
         if (!(packet instanceof PlayerPacket pp) || !(packet instanceof AntiCheatSpeed.IAntiCheat f)) return ret;
         IsoPlayer p = pp.getPlayer();
         if (p == null || !players.containsKey(p)) return ret;
-        double cap = Cfg.mpSpeedLimit;
+        double cap = Cfg.mpSpeedLimit();
         if (cap <= 0) return null;
         for (int i = 0; i < f.getMovableCount(); i++) {
             IMovable m = f.getMovable(i);
             if (m != null && (m.isVehicle() || m.getSpeed() > cap)) return ret;
         }
         return null;
+    }
+
+    private static boolean quieting;
+
+    /** Keeps our state stream out of cmd.txt unless the admin already filters our module. */
+    public static void quietCommandLog() {
+        if (quieting) return;
+        ServerOptions.StringServerOption opt = ServerOptions.getInstance().clientCommandFilter;
+        String filter = opt.getValue() != null ? opt.getValue() : "";
+        for (String s : filter.split(";")) {
+            if (s.startsWith(Net.MODULE + ".", 1)) return;
+        }
+        // Only the parsed filter keeps it, so the server ini never gets it.
+        opt.setValue(filter + ";-" + Net.MODULE + ".s");
+        quieting = true;
+        try {
+            GameServer.initClientCommandFilter();
+            Log.info("MP: state reports kept out of cmd.txt");
+        } finally {
+            quieting = false;
+            opt.setValue(filter);
+        }
     }
 
     /** Could a recent jump have made this move? Checks every edge and solid square on the line. */
@@ -129,7 +157,7 @@ public final class Server {
 
         double len = Math.hypot(to.x - from.x, to.y - from.y);
         double secs = st.okAt == 0 ? 1 : Math.max(0.2, (now - st.okAt) / 1000.0);
-        double cap = Cfg.mpSpeedLimit > 0 ? Math.max(20, Cfg.mpSpeedLimit) : 200;
+        double cap = Cfg.mpSpeedLimit() > 0 ? Math.max(20, Cfg.mpSpeedLimit()) : 200;
         if (len > cap * secs + 2) return false;
         // Dropping off is fine, vanilla allows it too.
         if (toLevel < level) return true;
@@ -147,7 +175,7 @@ public final class Server {
     private static boolean stepClear(IsoCell cell, IsoPlayer p, int z, int ax, int ay, int bx, int by, double feet) {
         double h;
         IsoObject window = ax == bx || ay == by ? Windows.between(cell, z, ax, ay, bx, by) : null;
-        if (window != null && Cfg.windowJump && (Windows.open(window, p) || Cfg.windowCrash && Windows.crashable(window))) {
+        if (window != null && Cfg.windowJump() && (Windows.open(window, p) || Cfg.windowCrash() && Windows.crashable(window))) {
             h = Windows.SILL;
         } else {
             h = Ledges.crossingHeight(cell, z, ax, ay, bx, by);

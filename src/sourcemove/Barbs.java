@@ -17,13 +17,13 @@ final class Barbs {
     private static final double SNAG_KEEP = 0.25;
 
     private static double lastZ = Double.NaN;
-    private static boolean snagged;
+    static boolean snagged;
 
     /** After each falling update. */
     static void update(IsoGameCharacter c, boolean air, boolean grounded, boolean landed) {
         double z = c.getZ(), prev = lastZ;
         lastZ = z;
-        if (!Cfg.barbedWire) {
+        if (!Cfg.barbedWire()) {
             snagged = false;
             return;
         }
@@ -35,7 +35,7 @@ final class Barbs {
         if (snagged || !air || Double.isNaN(prev) || z >= prev) return;
         IsoCell cell = IsoWorld.instance != null ? IsoWorld.instance.currentCell : null;
         if (cell == null) return;
-        double top = Ledges.barbedTopUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), Cfg.fenceFooting);
+        double top = Ledges.barbedTopUnder(cell, c.getX(), c.getY(), (int) Math.floor(z), Cfg.fenceFooting());
         if (top < 0 || prev < top || z >= top) return;
         snagged = true;
         Mover.vel.x *= SNAG_KEEP;

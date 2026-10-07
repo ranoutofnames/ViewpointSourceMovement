@@ -26,6 +26,8 @@
     "Sandbox_SourceMove_zombieReach": "How far zombies can reach up",
     "Sandbox_SourceMove_pulldown": "Zombies pull you down",
     "Sandbox_SourceMove_pulldown_tooltip": "Zombies can grab you out of the air",
+    "Sandbox_SourceMove_propBreak": "Zombies break what you stand on",
+    "Sandbox_SourceMove_propBreak_tooltip": "Standing on furniture = zombies smash it and you fall",
     "Sandbox_SourceMove_pulldownGroup": "Zombies needed to pull you down",
     "Sandbox_SourceMove_pulldownKeep": "Speed kept when grabbed",
     "Sandbox_SourceMove_pulldownLockout": "No jumping after a grab (seconds)",

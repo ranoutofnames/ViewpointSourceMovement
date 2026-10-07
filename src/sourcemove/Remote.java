@@ -98,6 +98,11 @@ public final class Remote {
         }
     }
 
+    /** New server, the old players are gone. */
+    static void clear() {
+        states.clear();
+    }
+
     private static St fresh(IsoGameCharacter c) {
         if (!(c instanceof IsoPlayer p) || !GameClient.client || p.isLocalPlayer()) return null;
         St st = states.get(p);
@@ -132,14 +137,14 @@ public final class Remote {
 
     /** Their falls are theirs to animate. */
     static boolean fallsOverridden(IsoGameCharacter c) {
-        return Cfg.fallMode != Cfg.FALL_VANILLA && active(c);
+        return Cfg.fallMode() != Cfg.FALL_VANILLA && active(c);
     }
 
     /** update exit, position and height from reports. */
     public static void onUpdateExit(IsoPlayer p) {
         St st = fresh(p);
         if (st == null || (st.flags & Net.F_ACTIVE) == 0 || p.getVehicle() != null || p.isDead()) return;
-        if (Cfg.fallMode != Cfg.FALL_VANILLA) {
+        if (Cfg.fallMode() != Cfg.FALL_VANILLA) {
             p.setbFalling(false);
             p.setFallTime(0);
         }

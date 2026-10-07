@@ -8,20 +8,20 @@ local o = {}
 
 opts:addTitle("General")
 o.enabled      = opts:addTickBox("enabled", "Enabled", true, "Turn the entire mod on or off")
-o.toggleKey    = opts:addKeyBind("toggleKey", "Toggle on/off", Keyboard.KEY_F8, "Hotkey to turn it on or off in game")
+o.toggleKey    = opts:addKeyBind("toggleKey", "Source movement on/off", Keyboard.KEY_F8, "Hotkey to turn it on or off in game")
 o.fpOnly       = opts:addTickBox("fpOnly", "First-person only", true)
 o.speedHud     = opts:addTickBox("speedHud", "Speed overlay", false)
 o.debugHud     = opts:addTickBox("debugHud", "Debug overlay", false)
 o.wireHud      = opts:addTickBox("wireHud", "Collision overlay", false)
 
 opts:addTitle("Jumping")
-o.jumpKey      = opts:addKeyBind("jumpKey", "Jump", Keyboard.KEY_SPACE)
+o.jumpKey      = opts:addKeyBind("jumpKey", "Source jump", Keyboard.KEY_SPACE)
 o.wheelJump    = opts:addTickBox("wheelJump", "Jump on mouse wheel", false)
 o.jumpAnim     = opts:addTickBox("jumpAnim", "Jumping animation", true)
 
--- Java setting -> Mod Options entry.
-local BOOLS = { enabled = "enabled", fpOnly = "fpOnly", debugHud = "debugHud", wireHud = "wireHud", wheelJump = "wheelJump", jumpAnim = "jumpAnim" }
-local NUMBERS = { jumpKey = "jumpKey" }
+-- Mod Options Java reads, same names there.
+local BOOLS = { "enabled", "fpOnly", "wireHud", "wheelJump", "jumpAnim" }
+local NUMBERS = { "jumpKey" }
 
 local warnedMissingJava = false
 
@@ -33,13 +33,9 @@ local function push()
         end
         return false
     end
-    for key, opt in pairs(BOOLS) do SourceMove_setBool(key, o[opt]:getValue() == true) end
-    for key, opt in pairs(NUMBERS) do SourceMove_setNumber(key, tonumber(o[opt]:getValue()) or 0) end
-    return SourceMovement_pushSandbox()
-end
-
-function opts:apply()
-    push()
+    for _, key in ipairs(BOOLS) do SourceMove_setBool(key, o[key]:getValue() == true) end
+    for _, key in ipairs(NUMBERS) do SourceMove_setNumber(key, tonumber(o[key]:getValue()) or 0) end
+    return true
 end
 
 local function note(text)
@@ -52,44 +48,79 @@ local function meleeKey()
     return ok and key or nil
 end
 
--- MP movement stays off until the server answers.
-local HELLO_EVERY_MS, HELLO_TRIES = 3000, 10
-local mp = { started = false, ready = false, tries = 0, at = 0 }
-
-local function onGameStart()
-    -- Mod Options only load with the Options screen otherwise.
-    PZAPI.ModOptions:load()
-    if SourceMove_netReset then SourceMove_netReset() end
-    mp.started, mp.ready, mp.tries, mp.at = true, false, 0, 0
-    if push() then
-        print("[SourceMovement] settings applied, enabled=" .. tostring(o.enabled:getValue()))
-    end
+local function checkConflict()
     local jump = o.jumpKey:getValue()
     if jump ~= 0 and jump == meleeKey() then
         note("Source movement: Jump and Melee are both on " .. Keyboard.getKeyName(jump) .. " - rebind one in Options")
     end
 end
 
+function opts:apply()
+    -- Vanilla saves a rebound key into the option only after apply runs.
+    for _, opt in pairs(o) do
+        if opt.type == "keybind" and opt.element and opt.element.keyCode then opt.key = opt.element.keyCode end
+    end
+    push()
+    checkConflict()
+end
+
+-- MP movement stays off until the server answers. Hellos keep going until it does, slower after a while.
+local HELLO_FAST_MS, HELLO_SLOW_MS, QUIET_MS = 3000, 15000, 30000
+local mp = { started = false, ready = false, ticking = false, since = 0, at = 0, noted = false }
+
 local function onTick()
-    if not mp.started or mp.ready or mp.tries >= HELLO_TRIES or not isClient() or not SourceMove_clientCommand then return end
+    if mp.ready or not SourceMove_clientCommand then return end
     local now = getTimestampMs()
-    if now - mp.at < HELLO_EVERY_MS then return end
+    local quiet = now - mp.since >= QUIET_MS
+    if now - mp.at < (quiet and HELLO_SLOW_MS or HELLO_FAST_MS) then return end
     local p = getPlayer()
     if not p then return end
     mp.at = now
-    mp.tries = mp.tries + 1
     sendClientCommand(p, NET, "hello", {})
-    if mp.tries == HELLO_TRIES then
-        print("[SourceMovement] no answer from the server; staying off")
-        note("Source movement: no answer from the server, off for this game")
+    if quiet and not mp.noted then
+        mp.noted = true
+        print("[SourceMovement] no answer from the server yet; off until it answers")
+        note("Source movement: no answer from the server yet, off until it answers")
+    end
+end
+
+local function setTicking(on)
+    if on == mp.ticking then return end
+    mp.ticking = on
+    if on then Events.OnTick.Add(onTick) else Events.OnTick.Remove(onTick) end
+end
+
+local function onGameStart()
+    -- Mod Options only load with the Options screen otherwise.
+    PZAPI.ModOptions:load()
+    if SourceMove_reset then SourceMove_reset() end
+    mp.started, mp.ready, mp.since, mp.at, mp.noted = true, false, getTimestampMs(), 0, false
+    setTicking(isClient())
+    if push() then
+        print("[SourceMovement] settings applied, enabled=" .. tostring(o.enabled:getValue()))
+    end
+    checkConflict()
+end
+
+local function onMainMenuEnter()
+    mp.started, mp.ready = false, false
+    setTicking(false)
+    if SourceMove_reset then SourceMove_reset() end
+end
+
+-- A respawn is a new player on the server.
+local function onCreatePlayer(_, player)
+    if mp.started and isClient() and SourceMove_clientCommand and player and player:isLocalPlayer() then
+        sendClientCommand(player, NET, "hello", {})
     end
 end
 
 local function onServerCommand(module, command, args)
     if module ~= NET or not SourceMove_clientCommand then return end
     args = args or {}
-    if command == "welcome" then
+    if command == "welcome" and not mp.ready then
         mp.ready = true
+        setTicking(false)
         if args.d ~= "java" and not isCoopHost() then
             note("Source movement: server has no ZombieBuddy, its anticheat may pull you back after jumps")
         end
@@ -102,6 +133,10 @@ local function onKeyPressed(key)
     if toggle == nil or toggle == 0 or key ~= toggle then return end
     local v = not o.enabled:getValue()
     o.enabled:setValue(v)
+    -- Save copies key widgets into the options, so drop rebinds cancelled in the Options screen.
+    for _, opt in pairs(o) do
+        if opt.type == "keybind" and opt.element then opt.element.keyCode = opt.key end
+    end
     PZAPI.ModOptions:save()
     push()
     note(v and "Source movement ON" or "Source movement OFF")
@@ -136,10 +171,10 @@ local function onPostUIDraw()
 end
 
 Events.OnGameStart.Add(onGameStart)
-Events.OnTick.Add(onTick)
+Events.OnCreatePlayer.Add(onCreatePlayer)
 Events.OnServerCommand.Add(onServerCommand)
 Events.OnKeyPressed.Add(onKeyPressed)
 Events.OnPostUIDraw.Add(onPostUIDraw)
 if Events.OnMainMenuEnter then
-    Events.OnMainMenuEnter.Add(function() mp.started = false end)
+    Events.OnMainMenuEnter.Add(onMainMenuEnter)
 end

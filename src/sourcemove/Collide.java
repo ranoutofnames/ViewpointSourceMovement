@@ -70,7 +70,7 @@ public final class Collide {
             dz = 0;
         }
         if (!air && (dz != 0 && dz != 1 || level > (int) Math.floor(feet))) return deny(target, "other level", feet - level, Double.NaN);
-        if ((dz == 0 || air) && Cfg.windowJump && Windows.inOpening(feet, edgeLevel)) {
+        if ((dz == 0 || air) && Cfg.windowJump() && Windows.inOpening(feet, edgeLevel)) {
             // Open windows are openings; closed ones can be crashed through.
             IsoObject window = Windows.between(cell, edgeLevel, fx, fy, tx, ty);
             double into = Mover.vel.x * (tx - fx) + Mover.vel.y * (ty - fy);
@@ -238,7 +238,7 @@ public final class Collide {
         postActive = false;
         if (!(o.isCollidedN() || o.isCollidedS() || o.isCollidedE() || o.isCollidedW() || o.isCollidedWithVehicle())) return;
         // Hit a sloped rail fast enough, launch along it.
-        if (Cfg.trimp) Ramps.railTrimp(Mover.self, o.isCollidedN(), o.isCollidedS(), o.isCollidedE(), o.isCollidedW());
+        if (Cfg.trimp()) Ramps.railTrimp(Mover.self, o.isCollidedN(), o.isCollidedS(), o.isCollidedE(), o.isCollidedW());
         // Rising over what's ahead, keep going instead of stopping on its face.
         boolean clearing = willClear(Mover.self);
         if (Cfg.wireHud && (o.isCollidedN() || o.isCollidedS() || o.isCollidedE() || o.isCollidedW())) {

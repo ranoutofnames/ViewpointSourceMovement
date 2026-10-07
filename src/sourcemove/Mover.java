@@ -20,6 +20,7 @@ import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.characters.Moodles.Moodles;
 import zombie.scripting.objects.MoodleType;
 
 /** Source movement for the local player. Input, acceleration, jumping, ground state, in tiles and tiles/s; vertical is the engine's lastFallSpeed. */
@@ -56,6 +57,8 @@ public final class Mover {
     private static long wishFrame = Long.MIN_VALUE / 2;
 
     private static boolean lastJumpDown, jumpDown, jumpEdge;
+    /** In a swing that began in the air. */
+    private static boolean airSwing;
     static long jumpQueuedAt;
 
     private static boolean groundedBeforeFalling = true;
@@ -73,10 +76,11 @@ public final class Mover {
     private static final double RIDE_SLOW_RATIO = 0.3;
     private static boolean riding;
     private static double rideSpeed;
-    /** Learned ground speed per mode (tiles/s), tuned from root motion. */
-    static final double[] maxSpeed = BASE_SPEED.clone();
+    /** Learned ground speed (tiles/s) per mode, then aiming per mode, then sneak-run and sneak-sprint. */
+    static final double[] maxSpeed = new double[10];
+    static { resetSpeeds(); }
     private static double modeHeldTime;
-    private static int lastMode = -1;
+    private static int lastSlot = -1;
 
     private static final Vector2 tmp = new Vector2();
     private static Field isOnGroundField;
@@ -96,9 +100,11 @@ public final class Mover {
         Status.measureSpeed(p, dt);
 
         // MP only once the server has answered.
-        baseActive = Cfg.enabled && !GameServer.server && (!GameClient.client || Net.serverReady)
+        baseActive = Cfg.enabled && !GameServer.server && (!GameClient.client || Net.serverReady())
                 && (!Cfg.fpOnly || Viewpoint.active());
         pollJumpKey();
+        // Also through timed actions on the prop.
+        Zombies.updateRaised(p, grounded);
 
         boolean own = computeOwns(p);
         owned = own;
@@ -108,7 +114,9 @@ public final class Mover {
             prevX = p.getX();
             prevY = p.getY();
             prevDt = dt;
-            wasParked = p.getVehicle() != null || !p.getCharacterActions().isEmpty() || p.getIgnoreMovement();
+            // A ride's speed isn't ours to keep either.
+            wasParked = p.getVehicle() != null || !p.getCharacterActions().isEmpty() || p.getIgnoreMovement()
+                    || "ride mod".equals(blockedBy) || "movement locked".equals(blockedBy);
             Net.frame(p, false, grounded, false, animOn, null);
             return false;
         }
@@ -135,32 +143,33 @@ public final class Mover {
         IsoGridSquare under = p.getCurrentSquare();
         // Stair and slope animation pace isn't run speed.
         boolean level = under == null || !(under.HasStairs() || under.hasSlopedSurface());
-        learnSpeed(p, mode, wishing && level, tmp.getLength(), dt);
+        int slot = slotOf(p, mode);
+        // A hit slow is moveUnmodded's own.
+        learnSpeed(p, mode, slot, wishing && level && p.getSlowFactor() <= 0, tmp.getLength(), dt);
 
-        double wishSpeed = wishing ? maxSpeed[mode] : 0;
-        double runSpeed = maxSpeed[RUN];
-        double tick = 1.0 / Math.max(10, Cfg.tickrate);
+        double wishSpeed = wishing ? maxSpeed[slot] : 0;
+        double tick = 1.0 / Math.max(10, Cfg.tickrate());
 
-        handleJump(p, tick, wishSpeed, runSpeed);
-        if (grounded && Cfg.trimp) Ramps.tryTrimp(p);
+        handleJump(p, tick, wishSpeed);
+        if (grounded && Cfg.trimp()) Ramps.tryTrimp(p);
         if (grounded) Zombies.pulledThisAir = false;
-        else if (Cfg.pulldown && !Zombies.pulledThisAir) Zombies.tryPulldown(p, dt);
+        else if (Cfg.pulldown() && !Zombies.pulledThisAir) Zombies.tryPulldown(p, dt);
         tickAcc += dt;
         int n = 0;
         while (tickAcc >= tick && n < 64) {
             if (grounded) {
-                groundTick(tick, wishSpeed, runSpeed);
+                groundTick(tick, wishSpeed);
             } else if (wishSpeed > 0) {
-                Physics.airAccelerate(vel, wishX, wishY, wishSpeed, Cfg.airAccelerate, tick, Cfg.airCapRatio * runSpeed);
+                Physics.airAccelerate(vel, wishX, wishY, wishSpeed, Cfg.airAccelerate(), tick, Cfg.airCapRatio * BASE_SPEED[RUN]);
             }
             tickAcc -= tick;
             n++;
         }
         if (n == 64) tickAcc = 0;
 
-        if (Cfg.maxSpeed > 0) {
+        if (Cfg.maxSpeed() > 0) {
             double s = vel.speed();
-            if (s > Cfg.maxSpeed) { vel.x *= Cfg.maxSpeed / s; vel.y *= Cfg.maxSpeed / s; }
+            if (s > Cfg.maxSpeed()) { vel.x *= Cfg.maxSpeed() / s; vel.y *= Cfg.maxSpeed() / s; }
         }
 
         Floors.carry(p, Floors.carryOut);
@@ -191,13 +200,14 @@ public final class Mover {
         String state = p.getCurrentActionContextStateName();
         lastState = state == null ? "?" : state;
         blockedBy = whyNotOwned(p, state);
+        airSwing = AIR_OWNED_STATES.contains(state) && blockedBy == null && (airSwing || !grounded);
         return blockedBy == null;
     }
 
     /** First thing keeping us from driving, null when we drive. */
     private static String whyNotOwned(IsoPlayer p, String state) {
         if (!Cfg.enabled) return "disabled";
-        if (GameClient.client && !Net.serverReady) return "waiting for server";
+        if (GameClient.client && !Net.serverReady()) return "waiting for server";
         if (Cfg.fpOnly && !Viewpoint.active()) return "not first person";
         if (!baseActive || state == null) return "inactive";
         if (p.isDead() || p.isAsleep()) return "dead or asleep";
@@ -208,38 +218,69 @@ public final class Mover {
         if (!p.getCharacterActions().isEmpty()) return "timed action";
         // Ride mods move the player themselves.
         if (riding) return "ride mod";
-        if (p.getIgnoreMovement() || p.getVariableBoolean("HorseRiding") || p.getVariableBoolean("SkateboardActive")) return "movement locked";
-        if (OWNED_STATES.contains(state) || (!grounded && AIR_OWNED_STATES.contains(state))) return null;
+        if (p.getIgnoreMovement() || !p.isDeferredMovementEnabled()
+                || p.getVariableBoolean("HorseRiding") || p.getVariableBoolean("SkateboardActive")) return "movement locked";
+        if (OWNED_STATES.contains(state)) return null;
+        // A swing from mid-hop stays ours after landing, and a jump press cuts a ground swing short (Space is also shove).
+        if (AIR_OWNED_STATES.contains(state) && (!grounded || airSwing || jumpWanted())) return null;
         return "state " + state;
     }
 
-    /** Puts jump state back to rest, on toggle. */
+    /** Puts movement and jump state back to rest, on toggle and on a new character. */
     static void softReset() {
         vel.x = vel.y = 0;
         tickAcc = 0;
         wasOwned = false;
+        owned = false;
+        wishX = wishY = 0;
         airborneUnderMod = false;
         jumpedThisAir = false;
         jumpQueuedAt = 0;
-        lastJumpDown = false;
+        jumpBlockedBy = null;
+        // A key already held isn't a fresh press.
+        lastJumpDown = Cfg.jumpKey > 0 && GameKeyboard.isKeyDown(Cfg.jumpKey);
+        airSwing = false;
         riding = false;
         rideSpeed = 0;
+        modeHeldTime = 0;
+        Barbs.snagged = false;
         Zombies.jumpLockUntil = 0;
         JumpCam.camLocked = false;
         Landing.inLanding = false;
+        animOn = false;
         IsoPlayer p = self;
-        if (p != null) {
-            grounded = readOnGround(p);
-            p.setVariable(ANIM_VAR, false);
-            animOn = false;
-        }
+        grounded = p == null || readOnGround(p);
+        groundedBeforeFalling = grounded;
+        if (p != null) p.setVariable(ANIM_VAR, false);
     }
 
-    private static void learnSpeed(IsoPlayer p, int mode, boolean wishing, float rootLen, double dt) {
-        if (mode != lastMode || !wishing || !grounded) {
+    /** New local character, its own learned speeds, dry land and floor. */
+    private static void resetFor(IsoPlayer p) {
+        self = p;
+        resetSpeeds();
+        lastSlot = -1;
+        prevDt = 0;
+        wasParked = false;
+        walkedOn = null;
+        Landing.hasLastLand = false;
+        Floors.reset();
+        softReset();
+    }
+
+    /** Forget the character and world, on game start and the main menu. */
+    public static void resetSession() {
+        resetFor(null);
+        Zombies.reset();
+        Windows.lastCrossed = null;
+        Ledges.lastRailStairs = null;
+        Props.lastObject = null;
+    }
+
+    private static void learnSpeed(IsoPlayer p, int mode, int slot, boolean wishing, float rootLen, double dt) {
+        if (slot != lastSlot || !wishing || !grounded) {
             modeHeldTime = 0;
             rideSpeed = 0;
-            lastMode = mode;
+            lastSlot = slot;
             return;
         }
         modeHeldTime += dt;
@@ -257,9 +298,24 @@ public final class Mover {
             }
         }
         if (s < 0.2 || s > 25) return;
-        double rate = s > maxSpeed[mode] ? 3.0 : 1.5;
-        maxSpeed[mode] += (s - maxSpeed[mode]) * Math.min(1, rate * dt);
-        maxSpeed[mode] = Math.min(maxSpeed[mode], BASE_SPEED[mode] * LEARN_CAP);
+        double rate = s > maxSpeed[slot] ? 3.0 : 1.5;
+        maxSpeed[slot] += (s - maxSpeed[slot]) * Math.min(1, rate * dt);
+        maxSpeed[slot] = Math.min(maxSpeed[slot], baseOf(slot) * LEARN_CAP);
+    }
+
+    /** Aim strafes and sneak-runs have their own pace, so they learn apart from the plain mode. */
+    private static int slotOf(IsoPlayer p, int mode) {
+        if (p.isAiming()) return 4 + mode;
+        if (mode >= RUN && p.isSneaking()) return 6 + mode;
+        return mode;
+    }
+
+    private static double baseOf(int slot) {
+        return BASE_SPEED[slot < 4 ? slot : slot < 8 ? slot - 4 : slot - 6];
+    }
+
+    private static void resetSpeeds() {
+        for (int i = 0; i < maxSpeed.length; i++) maxSpeed[i] = baseOf(i);
     }
 
     private static int modeOf(IsoPlayer p) {
@@ -280,9 +336,14 @@ public final class Mover {
     }
 
     /** Source ground tick, friction then accelerate. */
-    private static void groundTick(double tick, double wishSpeed, double runSpeed) {
-        Physics.friction(vel, Cfg.friction, Cfg.stopSpeedRatio * runSpeed, tick);
-        if (wishSpeed > 0) Physics.accelerate(vel, wishX, wishY, wishSpeed, Cfg.accelerate, tick);
+    private static void groundTick(double tick, double wishSpeed) {
+        Physics.friction(vel, Cfg.friction(), Cfg.stopSpeedRatio * BASE_SPEED[RUN], tick);
+        if (wishSpeed > 0) Physics.accelerate(vel, wishX, wishY, wishSpeed, Cfg.accelerate(), tick);
+    }
+
+    /** Jump key state for the debug overlay. */
+    static String keyState() {
+        return String.format("jump key %d down=%s", Cfg.jumpKey, jumpDown);
     }
 
     /** Polled every frame so press edges survive ownership changes. */
@@ -294,37 +355,46 @@ public final class Mover {
         jumpDown = down;
         lastJumpDown = down;
         // Source drops air presses; only the optional buffer keeps one.
-        if (jumpEdge && !grounded && Cfg.jumpBufferMs > 0) jumpQueuedAt = System.nanoTime();
+        if (jumpEdge && !grounded && Cfg.jumpBufferMs() > 0) jumpQueuedAt = System.nanoTime();
+    }
+
+    private static boolean buffered(long now) {
+        return jumpQueuedAt != 0 && now - jumpQueuedAt <= (long) (Cfg.jumpBufferMs() * 1_000_000L);
+    }
+
+    /** A press, a buffered press or a held autohop. */
+    private static boolean jumpWanted() {
+        return jumpEdge || buffered(System.nanoTime()) || Cfg.autohop() && jumpDown;
     }
 
     /** Source CheckJumpButton, a fresh press on the ground before friction; autohop pays ground ticks per hop. */
-    private static void handleJump(IsoPlayer p, double tick, double wishSpeed, double runSpeed) {
+    private static void handleJump(IsoPlayer p, double tick, double wishSpeed) {
         if (!grounded) return;
         long now = System.nanoTime();
-        boolean buffered = jumpQueuedAt != 0 && now - jumpQueuedAt <= (long) (Cfg.jumpBufferMs * 1_000_000L);
-        boolean pressed = jumpEdge || buffered;
-        boolean held = !pressed && Cfg.autohop && jumpDown;
+        boolean pressed = jumpEdge || buffered(now);
+        boolean held = !pressed && Cfg.autohop() && jumpDown;
         if (!pressed && !held) return;
         if (now < Zombies.jumpLockUntil) { jumpBlockedBy = "grabbed"; return; }
         if (ceilingBlocked(p)) { jumpBlockedBy = "ceiling"; return; }
 
-        int tired = p.getMoodles().getMoodleLevel(MoodleType.ENDURANCE);
-        if (Cfg.exhaustedNoJump && tired >= 4) { jumpBlockedBy = "exhausted"; return; }
+        Moodles moodles = p.getMoodles();
+        int tired = moodles != null ? moodles.getMoodleLevel(MoodleType.ENDURANCE) : 0;
+        if (Cfg.exhaustedNoJump() && tired >= 4) { jumpBlockedBy = "exhausted"; return; }
         jumpBlockedBy = null;
-        double height = Cfg.jumpHeight;
-        if (Cfg.tiredJumps) height *= 1 - 0.08 * tired;
-        if (Cfg.heavyJumps) height *= 1 - 0.10 * p.getMoodles().getMoodleLevel(MoodleType.HEAVY_LOAD);
+        double height = Cfg.jumpHeight();
+        if (Cfg.tiredJumps()) height *= 1 - 0.08 * tired;
+        if (Cfg.heavyJumps() && moodles != null) height *= 1 - 0.10 * moodles.getMoodleLevel(MoodleType.HEAVY_LOAD);
 
         if (held) {
-            for (int i = 0; i < Cfg.autohopGroundTicks; i++) groundTick(tick, wishSpeed, runSpeed);
+            for (int i = 0; i < Cfg.autohopGroundTicks; i++) groundTick(tick, wishSpeed);
         }
         // Takeoff step, as in Source.
-        if (Cfg.sounds) p.DoFootstepSound(1.0f);
+        if (Cfg.sounds()) p.DoFootstepSound(1.0f);
         exert(p);
         Landing.rememberLand(p);
 
         double v0 = Physics.jumpSpeed(height, FallingConstants.IsoFallAcceleration);
-        if (Cfg.trimp && Ramps.groundRamp(p)) v0 += Ramps.slopeLift(); // a jump up a ramp leaves from the slope
+        if (Cfg.trimp() && Ramps.groundRamp(p)) v0 += Ramps.slopeLift(); // a jump up a ramp leaves from the slope
         p.setLastFallSpeed((float) -v0);
         float animSpeed = 1;
         if (Cfg.jumpAnim) {
@@ -349,9 +419,9 @@ public final class Mover {
     private static final double BAT_SWING_ENDURANCE = 2.0 * 0.18 * 0.3 * 0.04;
 
     private static void exert(IsoPlayer p) {
-        double cost = Cfg.jumpExertion * BAT_SWING_ENDURANCE * p.getFatigueMod()
+        double cost = Cfg.jumpExertion() * BAT_SWING_ENDURANCE * p.getFatigueMod()
                 * p.getCharacterTraits().getTraitEnduranceLossModifier();
-        if (Cfg.exertionWeight && p.getInventory() != null && p.getInventory().getMaxWeight() > 0) {
+        if (Cfg.exertionWeight() && p.getInventory() != null && p.getInventory().getMaxWeight() > 0) {
             cost *= 1 + Math.min(2, p.getInventory().getCapacityWeight() / p.getInventory().getMaxWeight());
         }
         if (cost > 0) p.getStats().remove(CharacterStat.ENDURANCE, (float) cost);
@@ -411,11 +481,12 @@ public final class Mover {
 
     /** Hide the falling state so you keep air control. */
     public static boolean fallOverride(IsoGameCharacter c) {
-        return modAir(c) && Cfg.fallMode != Cfg.FALL_VANILLA;
+        return modAir(c) && Cfg.fallMode() != Cfg.FALL_VANILLA;
     }
 
     public static void onUpdateFallingEnter(IsoGameCharacter c) {
         if (c != self) return;
+        Floors.beginQuery();
         groundedBeforeFalling = grounded;
         fallSpeedBeforeFalling = c.getLastFallSpeed();
         if (fallOverride(c) && c.getLastFallSpeed() < 0 && ceilingBlocked(c)) c.setLastFallSpeed(0);
@@ -423,6 +494,7 @@ public final class Mover {
 
     public static void onUpdateFallingExit(IsoGameCharacter c) {
         if (c != self) return;
+        Floors.endQuery();
         grounded = readOnGround(c);
         if (groundedBeforeFalling && !grounded && !jumpedThisAir) { // walked off an edge
             airStartNanos = System.nanoTime();
@@ -437,7 +509,7 @@ public final class Mover {
             grounded = false; // landed on a ramp moving up it fast, still flying
         } else if (!groundedBeforeFalling && grounded) {
             if (Cfg.wireHud) Wire.log(String.format("landed on %s at %.2f, falling %.2f lv/s", Floors.floorName(c), c.getZ(), fallSpeedBeforeFalling));
-            int landing = Cfg.sounds && air ? Landing.landingKind(fallSpeedBeforeFalling) : 0;
+            int landing = Cfg.sounds() && air ? Landing.landingKind(fallSpeedBeforeFalling) : 0;
             if (landing > 0) Landing.playLanding(c, landing);
             Net.landed(landing);
             // In the water, not on a prop in it.
@@ -487,8 +559,9 @@ public final class Mover {
         }
     }
 
+    /** First local player; getInstance() switches between splitscreen players mid-update, and SP animals call themselves local. */
     private static boolean isLocal(IsoPlayer p) {
-        return p.isLocalPlayer() && p == IsoPlayer.getInstance();
+        return p == IsoPlayer.players[0];
     }
 
     /** No 0.75 stair slowdown while we drive. */
@@ -507,27 +580,5 @@ public final class Mover {
         if (Floors.ride == null) return vel.y;
         Rides.velocity(Floors.ride, Floors.carVel);
         return vel.y + Floors.carVel[1];
-    }
-
-    private static void resetFor(IsoPlayer p) {
-        self = p;
-        vel.x = vel.y = 0;
-        grounded = true;
-        airborneUnderMod = false;
-        wasOwned = false;
-        owned = false;
-        tickAcc = 0;
-        jumpQueuedAt = 0;
-        groundedBeforeFalling = true;
-        jumpedThisAir = false;
-        JumpCam.camLocked = false;
-        animOn = false;
-        Floors.ride = Floors.floorVehicle = null;
-        Landing.hasLastLand = false;
-        Floors.floorKind = Floors.FLOOR_GROUND;
-        System.arraycopy(BASE_SPEED, 0, maxSpeed, 0, maxSpeed.length);
-        lastMode = -1;
-        riding = false;
-        rideSpeed = 0;
     }
 }
