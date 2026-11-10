@@ -3,6 +3,7 @@ package sourcemove;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.joml.Matrix3f;
@@ -22,7 +23,6 @@ import zombie.iso.sprite.IsoSpriteManager;
 import zombie.tileDepth.TileDepthTextureAssignmentManager;
 import zombie.tileDepth.TileGeometryFile;
 import zombie.tileDepth.TileGeometryManager;
-import zombie.util.list.PZArrayList;
 
 /** Props you can jump onto and over, sized from the game's tile geometry or else the sprite's pixel height. */
 final class Props {
@@ -432,7 +432,7 @@ final class Props {
     static double entryTop(IsoGridSquare sq) {
         if (sq == null) return 0;
         if (!enabledAt(sq)) return sq.isSolid() || sq.isSolidTrans() ? Double.NaN : 0;
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         double top = 0;
         boolean found = false;
         for (int i = 0; i < objects.size(); i++) {
@@ -460,7 +460,7 @@ final class Props {
     /** By name, so the server can tell too. */
     static boolean hasTent(IsoGridSquare sq) {
         if (sq == null) return false;
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         for (int i = 0; i < objects.size(); i++) {
             IsoSprite s = objects.get(i).getSprite();
             if (s == null || s.getProperties() == null) continue;
@@ -477,7 +477,7 @@ final class Props {
     /** The tent on this square, or null. */
     static Prop ramp(IsoGridSquare sq) {
         if (sq == null || !enabledAt(sq)) return null;
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         for (int i = 0; i < objects.size(); i++) {
             Prop p = prop(objects.get(i));
             if (p != null && p != BLOCKER && p.rampAngle > 0) return p;
@@ -495,7 +495,7 @@ final class Props {
     static String describe(IsoGridSquare sq) {
         if (sq == null) return "-";
         StringBuilder sb = new StringBuilder();
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         for (int i = 0; i < objects.size(); i++) {
             IsoObject o = objects.get(i);
             IsoSprite s = o.getSprite();
@@ -558,7 +558,7 @@ final class Props {
             for (int gy = sy - 1; gy <= sy + 1; gy++) {
                 IsoGridSquare sq = cell.getGridSquare(gx, gy, level);
                 if (sq == null || !enabledAt(sq)) continue;
-                PZArrayList<IsoObject> objects = sq.getObjects();
+                List<IsoObject> objects = sq.getObjects();
                 double lx = x - (gx + 0.5), ly = y - (gy + 0.5);
                 for (int i = 0; i < objects.size(); i++) {
                     IsoObject o = objects.get(i);

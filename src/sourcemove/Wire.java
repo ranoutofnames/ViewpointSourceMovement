@@ -1,6 +1,7 @@
 package sourcemove;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import zombie.characters.FallingConstants;
 import zombie.characters.IsoPlayer;
@@ -12,7 +13,6 @@ import zombie.iso.IsoWorld;
 import zombie.pathfind.VehiclePoly;
 import zombie.ui.TextManager;
 import zombie.ui.UIFont;
-import zombie.util.list.PZArrayList;
 import zombie.vehicles.BaseVehicle;
 
 /** Collision overlay. Top and side wireframes of what collision sees, plus a log of what blocked you. */
@@ -220,7 +220,7 @@ final class Wire {
         }
         if (sq.HasStairs()) wtext(gx + 0.5, gy + 0.5, "stairs", CYAN);
         // Prop shapes, with footing margin (dim).
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         for (int i = 0; i < objects.size(); i++) {
             Props.Prop prop = Props.prop(objects.get(i));
             if (!Props.jumpable(prop) || prop.rampAngle > 0) continue;

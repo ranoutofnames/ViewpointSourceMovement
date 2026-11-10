@@ -1,6 +1,7 @@
 name=Source Movement for Viewpoint
 id=ViewpointSourceMovement
 description=Source-engine movement for Viewpoint's first-person view: jump, bunny hop, air strafing, jumpable props and windows. Works in multiplayer (the server should run ZombieBuddy too). Options: Options > Mods > Source Movement, gameplay in Sandbox options.
+poster=poster.png
 modversion=1.0
 versionMin=42.21
 

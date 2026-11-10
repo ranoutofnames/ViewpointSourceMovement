@@ -1,6 +1,8 @@
 package sourcemove;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.function.BooleanSupplier;
 
 /** Reflection link to Viewpoint's camera; inert if it changes. Nothing of Viewpoint is copied. */
 public final class Viewpoint {
@@ -8,6 +10,15 @@ public final class Viewpoint {
 
     private static boolean resolved;
     private static Field viewEnabled;
+
+    /** Movement.model, 0 = Turn to move, 1 = Strafe. */
+    private static final int STRAFE = 1;
+    private static boolean modelResolved;
+    private static Object model;
+    private static Method modelGet, modelSet;
+    private static boolean forcing;
+    /** The player's own choice, while we hold Strafe. */
+    private static int modelWas = -1;
 
     private static boolean eyeResolved;
     /** Controls.eyeX/Y/Z, smoothed head offset from the feet (render meters). */
@@ -86,6 +97,49 @@ public final class Viewpoint {
         } catch (Throwable t) {
             offX = null; // stop trying; logged once below
             Log.warn("jump camera stabilization failed (" + t + "); disabled");
+        }
+    }
+
+    private static boolean resolveModel() {
+        if (modelResolved) return model != null;
+        modelResolved = true;
+        try {
+            Field f = Class.forName("viewpoint.input.Controls").getDeclaredField("MODEL");
+            f.setAccessible(true);
+            model = f.get(null);
+            modelGet = model.getClass().getMethod("get");
+            modelSet = model.getClass().getMethod("set", int.class);
+            // Greys the option out in Viewpoint's menu while we hold it.
+            BooleanSupplier free = () -> !forcing;
+            model.getClass().getMethod("enabledWhen", BooleanSupplier.class).invoke(model, free);
+        } catch (Throwable t) {
+            if (modelGet == null || modelSet == null) model = null;
+            Log.warn("Viewpoint movement model not found (" + t + "); Strafe is not forced");
+        }
+        return model != null;
+    }
+
+    /** Holds Viewpoint on Strafe while we drive, and gives the player's choice back after. */
+    static void holdStrafe(boolean on) {
+        if (!on && !forcing) return;
+        if (!resolveModel()) return;
+        try {
+            int now = (Integer) modelGet.invoke(model);
+            if (on) {
+                forcing = true;
+                if (now != STRAFE) {
+                    if (modelWas < 0) modelWas = now;
+                    modelSet.invoke(model, STRAFE);
+                }
+            } else {
+                forcing = false;
+                if (modelWas >= 0 && now == STRAFE) modelSet.invoke(model, modelWas);
+                modelWas = -1;
+            }
+        } catch (Throwable t) {
+            model = null;
+            forcing = false;
+            Log.warn("Viewpoint movement model failed (" + t + "); Strafe is not forced");
         }
     }
 }

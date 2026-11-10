@@ -1,6 +1,7 @@
 package sourcemove;
 
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 
 import zombie.core.properties.PropertyContainer;
@@ -10,7 +11,6 @@ import zombie.iso.IsoObject;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.sprite.IsoSprite;
-import zombie.util.list.PZArrayList;
 
 /** Stair rails and escalator side panels, edge obstacles that slope with their stairs. */
 final class Rails {
@@ -55,7 +55,7 @@ final class Rails {
 
     static int kinds(IsoGridSquare sq) {
         if (sq == null) return 0;
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         int k = 0;
         for (int i = 0; i < objects.size(); i++) k |= spriteKinds(objects.get(i).getSprite());
         return k;

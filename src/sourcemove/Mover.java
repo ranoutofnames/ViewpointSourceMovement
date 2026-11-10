@@ -102,6 +102,8 @@ public final class Mover {
         // MP only once the server has answered.
         baseActive = Cfg.enabled && !GameServer.server && (!GameClient.client || Net.serverReady())
                 && (!Cfg.fpOnly || Viewpoint.active());
+        // Our body model needs Viewpoint's Strafe.
+        if (frame % 20 == 0) Viewpoint.holdStrafe(Cfg.enabled && Viewpoint.active());
         pollJumpKey();
         // Also through timed actions on the prop.
         Zombies.updateRaised(p, grounded);

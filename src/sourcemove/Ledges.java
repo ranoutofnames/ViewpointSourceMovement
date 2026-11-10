@@ -1,6 +1,7 @@
 package sourcemove;
 
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 
 import zombie.core.properties.PropertyContainer;
@@ -10,7 +11,6 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.sprite.IsoSprite;
-import zombie.util.list.PZArrayList;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.objects.GridSquareEdgeFacingDirection;
 
@@ -88,7 +88,7 @@ final class Ledges {
 
     /** Wall height from its sprites. Roof parapets are low, walls_special adds nothing. */
     private static double wallHeight(IsoGridSquare sq, boolean north) {
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         int side = north ? 0 : 1;
         double best = -1;
         for (int i = 0; i < objects.size(); i++) {
@@ -148,7 +148,7 @@ final class Ledges {
     }
 
     private static boolean barbed(IsoGridSquare sq, boolean north) {
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         for (int i = 0; i < objects.size(); i++) {
             IsoSprite s = objects.get(i).getSprite();
             if (s == null) continue;
@@ -260,7 +260,7 @@ final class Ledges {
     /** Square-local (lx, ly) over the body of a fence on this edge. */
     private static boolean onSlab(IsoGridSquare sq, boolean north, double lx, double ly) {
         if (!sq.has(north ? IsoFlagType.HoppableN : IsoFlagType.HoppableW)) return false;
-        PZArrayList<IsoObject> objects = sq.getObjects();
+        List<IsoObject> objects = sq.getObjects();
         for (int i = 0; i < objects.size(); i++) {
             IsoSprite s = objects.get(i).getSprite();
             if (s == null) continue;

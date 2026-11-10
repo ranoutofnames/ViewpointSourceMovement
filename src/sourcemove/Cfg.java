@@ -25,7 +25,8 @@ public final class Cfg {
     /** How long an air press is kept for the landing; 0 = Source. */
     public static double jumpBufferMs() { return Sandbox.num(Sandbox.P + "jumpBufferMs", 60); }
     public static volatile boolean jumpAnim = true;
-    public static final boolean stableJumpCam = true;
+    /** Off, Viewpoint moved its camera code and the hook is retired. */
+    public static final boolean stableJumpCam = false;
     /** How far from a fence line you can stand on it (tiles). */
     public static double fenceFooting() { return Sandbox.num(Sandbox.P + "fenceFooting", 0.35); }
     /** Added to car roof height (levels). */
